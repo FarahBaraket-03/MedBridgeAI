@@ -6,6 +6,10 @@
 MedBridge AI analyses **797 medical facilities and NGOs** across Ghana through **6 coordinated AI agents**. Users ask natural-language questions and receive structured answers, interactive maps, and actionable insights — powered by a LangGraph orchestration pipeline with self-correcting feedback loops, optional **quantum-optimised routing**, and a cyberpunk-styled React frontend.
 
 ---
+![5a0b36a1-9588-4d16-a7b8-f9c986279338](https://github.com/user-attachments/assets/bf7fa71d-8341-4497-a2b6-9c02655e4c46)
+
+![b12157ae-984e-460d-bdec-7f6eca179380](https://github.com/user-attachments/assets/3b082e1e-1ebc-4e74-a474-f14aac1ca358)
+
 
 ## Quick Start
 
