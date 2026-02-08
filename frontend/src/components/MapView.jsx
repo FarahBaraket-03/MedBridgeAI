@@ -31,12 +31,13 @@ function getTypeColor(facility) {
   return TYPE_COLORS.default
 }
 
-export default function MapView({ facilities, routeData, medicalDeserts, coldSpots, showLegend = true }) {
+export default function MapView({ facilities, routeData, medicalDeserts, coldSpots, placementSuggestions, showLegend = true }) {
   const mapRef = useRef(null)
   const mapInstance = useRef(null)
   const markersRef = useRef(null)
   const routeLayerRef = useRef(null)
   const desertsLayerRef = useRef(null)
+  const placementsLayerRef = useRef(null)
 
   // Initialize map
   useEffect(() => {
@@ -267,6 +268,65 @@ export default function MapView({ facilities, routeData, medicalDeserts, coldSpo
     desertsLayerRef.current = group
   }, [medicalDeserts, coldSpots])
 
+  // ── Draw maximin placement suggestions ───────────────────────────────
+  useEffect(() => {
+    if (!mapInstance.current) return
+
+    if (placementsLayerRef.current) {
+      placementsLayerRef.current.clearLayers()
+    }
+
+    if (!placementSuggestions || placementSuggestions.length === 0) return
+
+    const group = L.layerGroup()
+
+    placementSuggestions.forEach((s, i) => {
+      const lat = s.suggested_lat ?? s.latitude
+      const lng = s.suggested_lng ?? s.longitude
+      if (lat == null || lng == null) return
+
+      const color = s.priority === 'critical' ? '#ff006e' : s.priority === 'high' ? '#ff8500' : '#06ffa5'
+
+      // Diamond-shaped DivIcon for proposed locations
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          width: 16px; height: 16px;
+          background: ${color};
+          border: 2px solid #fff;
+          transform: rotate(45deg);
+          box-shadow: 0 0 8px ${color}80;
+          opacity: 0.9;
+        "></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      })
+
+      const marker = L.marker([lat, lng], { icon })
+
+      marker.bindPopup(`
+        <div style="font-family:'Inter',sans-serif;min-width:180px">
+          <div style="font-weight:700;color:${color};font-size:0.7rem">◆ PROPOSED FACILITY #${s.rank || i + 1}</div>
+          <div style="font-weight:600;color:#e8edf5;margin-top:4px">${s.region || 'Unknown region'}</div>
+          <div style="font-size:0.75rem;color:#8892a8;margin-top:4px">
+            Nearest existing: ${s.nearest_existing_facility_km?.toFixed(1) || '?'} km
+          </div>
+          <div style="font-size:0.75rem;color:#8892a8">
+            GPS: (${lat.toFixed(4)}, ${lng.toFixed(4)})
+          </div>
+          <div style="font-size:0.7rem;color:${color};margin-top:4px;text-transform:uppercase;font-weight:600">
+            ${s.priority || 'medium'} priority
+          </div>
+        </div>
+      `)
+
+      group.addLayer(marker)
+    })
+
+    mapInstance.current.addLayer(group)
+    placementsLayerRef.current = group
+  }, [placementSuggestions])
+
   return (
     <div className="relative w-full h-full">
       <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
@@ -302,6 +362,19 @@ export default function MapView({ facilities, routeData, medicalDeserts, coldSpo
               {[['Critical', '#ff006e'], ['High', '#ff8500'], ['Medium', '#ffd60a']].map(([label, c]) => (
                 <div key={label} className="flex items-center gap-2 py-0.5">
                   <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: c, opacity: 0.7, boxShadow: `0 0 4px ${c}60` }} />
+                  <span className="text-[0.65rem]" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                </div>
+              ))}
+            </>
+          )}
+          {placementSuggestions && placementSuggestions.length > 0 && (
+            <>
+              <div className="font-mono text-[0.55rem] tracking-[0.12em] uppercase mt-3 mb-1" style={{ color: 'var(--text-muted)' }}>
+                Proposed Facilities
+              </div>
+              {[['Critical', '#ff006e'], ['High', '#ff8500'], ['Medium', '#06ffa5']].map(([label, c]) => (
+                <div key={label} className="flex items-center gap-2 py-0.5">
+                  <span className="w-2.5 h-2.5 inline-block" style={{ background: c, transform: 'rotate(45deg)', boxShadow: `0 0 4px ${c}60` }} />
                   <span className="text-[0.65rem]" style={{ color: 'var(--text-secondary)' }}>{label}</span>
                 </div>
               ))}

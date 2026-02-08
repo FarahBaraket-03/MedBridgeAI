@@ -13,7 +13,7 @@ export default function QueryInput({ onSubmit, loading, examples }) {
       <div className="flex items-center gap-2 mb-1">
         <span style={{ color: 'var(--purple)', fontSize: '1rem' }}>🔍</span>
         <span
-          className="font-mono text-sm tracking-[0.1em]"
+          className="font-mono text-sm tracking-widest"
           style={{ color: 'var(--cyan)' }}
         >
           Ask About Healthcare in Ghana
@@ -57,14 +57,14 @@ export default function QueryInput({ onSubmit, loading, examples }) {
               color: 'var(--text-secondary)',
             }}
             onMouseEnter={e => {
-              e.target.style.borderColor = 'var(--cyan)'
-              e.target.style.color = 'var(--cyan)'
-              e.target.style.background = 'rgba(0, 243, 255, 0.1)'
+              e.currentTarget.style.borderColor = 'var(--cyan)'
+              e.currentTarget.style.color = 'var(--cyan)'
+              e.currentTarget.style.background = 'rgba(0, 243, 255, 0.1)'
             }}
             onMouseLeave={e => {
-              e.target.style.borderColor = 'rgba(0, 243, 255, 0.15)'
-              e.target.style.color = 'var(--text-secondary)'
-              e.target.style.background = 'rgba(0, 243, 255, 0.05)'
+              e.currentTarget.style.borderColor = 'rgba(0, 243, 255, 0.15)'
+              e.currentTarget.style.color = 'var(--text-secondary)'
+              e.currentTarget.style.background = 'rgba(0, 243, 255, 0.05)'
             }}
             onClick={() => { setQuery(ex); onSubmit(ex) }}
             disabled={loading}

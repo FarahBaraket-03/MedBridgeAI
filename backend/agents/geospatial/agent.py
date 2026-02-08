@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from geopy.distance import geodesic
+from sklearn.neighbors import BallTree
 
 from backend.core.config import (
     GHANA_BOUNDING_BOX,
@@ -28,6 +29,8 @@ from backend.core.config import (
 )
 from backend.core.geocoding import GHANA_CITY_COORDS, GHANA_REGION_COORDS
 from backend.core.preprocessing import run_preprocessing
+
+EARTH_RADIUS_KM = 6371.0
 
 
 class GeospatialAgent:
@@ -76,6 +79,32 @@ class GeospatialAgent:
         # Subset with valid coordinates
         self.valid_coords = self.geo_df.dropna(subset=["latitude", "longitude"]).copy()
 
+        # ── Build BallTree for O(log N) spatial queries ──
+        if len(self.valid_coords) > 0:
+            coords_rad = np.deg2rad(
+                self.valid_coords[["latitude", "longitude"]].values
+            )
+            self._ball_tree = BallTree(coords_rad, metric="haversine")
+        else:
+            self._ball_tree = None
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  BALLTREE HELPERS
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _get_tree_and_df(self, specialty: Optional[str] = None):
+        """Return (BallTree, DataFrame) — either the full tree or a specialty-filtered one."""
+        if specialty is None:
+            return self._ball_tree, self.valid_coords
+        df = self.valid_coords[
+            self.valid_coords["specialties"].apply(lambda s: specialty in s)
+        ].copy()
+        if df.empty:
+            return None, df
+        coords_rad = np.deg2rad(df[["latitude", "longitude"]].values)
+        tree = BallTree(coords_rad, metric="haversine")
+        return tree, df
+
     # ═══════════════════════════════════════════════════════════════════════════
     #  1. DISTANCE QUERIES
     # ═══════════════════════════════════════════════════════════════════════════
@@ -87,25 +116,34 @@ class GeospatialAgent:
         radius_km: float = 50.0,
         specialty: Optional[str] = None,
     ) -> Dict:
-        """Find all facilities within a given radius of a point."""
-        df = self.valid_coords.copy()
-        if specialty:
-            df = df[df["specialties"].apply(lambda s: specialty in s)]
+        """Find all facilities within a given radius using BallTree (O(log N))."""
+        tree, df = self._get_tree_and_df(specialty)
+        if tree is None or df.empty:
+            return {
+                "agent": "geospatial", "action": "facilities_within_radius",
+                "center": {"lat": lat, "lng": lng}, "radius_km": radius_km,
+                "specialty_filter": specialty, "total_found": 0, "facilities": [],
+            }
+
+        query_rad = np.deg2rad([[lat, lng]])
+        radius_rad = radius_km / EARTH_RADIUS_KM
+
+        indices, distances = self._ball_tree_query_radius(tree, query_rad, radius_rad)
 
         results = []
-        for _, row in df.iterrows():
-            dist = geodesic((lat, lng), (row["latitude"], row["longitude"])).km
-            if dist <= radius_km:
-                results.append({
-                    "facility": row["name"],
-                    "city": row["address_city"],
-                    "region": row["address_stateOrRegion"],
-                    "distance_km": round(dist, 2),
-                    "latitude": row["latitude"],
-                    "longitude": row["longitude"],
-                    "specialties": row["specialties"],
-                    "type": row["facilityTypeId"],
-                })
+        for idx, dist_rad in zip(indices, distances):
+            dist_km = dist_rad * EARTH_RADIUS_KM
+            row = df.iloc[idx]
+            results.append({
+                "facility": row["name"],
+                "city": row["address_city"],
+                "region": row["address_stateOrRegion"],
+                "distance_km": round(dist_km, 2),
+                "latitude": row["latitude"],
+                "longitude": row["longitude"],
+                "specialties": row["specialties"],
+                "type": row["facilityTypeId"],
+            })
 
         results.sort(key=lambda x: x["distance_km"])
 
@@ -119,6 +157,12 @@ class GeospatialAgent:
             "facilities": results[:30],
         }
 
+    @staticmethod
+    def _ball_tree_query_radius(tree: BallTree, query_rad: np.ndarray, radius_rad: float):
+        """Query BallTree for all points within radius. Returns (indices, distances)."""
+        ind_arr, dist_arr = tree.query_radius(query_rad, r=radius_rad, return_distance=True, sort_results=True)
+        return ind_arr[0], dist_arr[0]
+
     def nearest_facilities(
         self,
         lat: float,
@@ -126,26 +170,32 @@ class GeospatialAgent:
         k: int = 5,
         specialty: Optional[str] = None,
     ) -> Dict:
-        """Find the k nearest facilities to a given point."""
-        df = self.valid_coords.copy()
-        if specialty:
-            df = df[df["specialties"].apply(lambda s: specialty in s)]
+        """Find the k nearest facilities using BallTree (O(log N))."""
+        tree, df = self._get_tree_and_df(specialty)
+        if tree is None or df.empty:
+            return {
+                "agent": "geospatial", "action": "nearest_facilities",
+                "origin": {"lat": lat, "lng": lng}, "k": k,
+                "specialty_filter": specialty, "facilities": [],
+            }
 
-        distances = []
-        for _, row in df.iterrows():
-            dist = geodesic((lat, lng), (row["latitude"], row["longitude"])).km
-            distances.append({
+        actual_k = min(k, len(df))
+        query_rad = np.deg2rad([[lat, lng]])
+        dist_arr, ind_arr = tree.query(query_rad, k=actual_k)
+
+        results = []
+        for idx, dist_rad in zip(ind_arr[0], dist_arr[0]):
+            row = df.iloc[idx]
+            results.append({
                 "facility": row["name"],
                 "city": row["address_city"],
                 "region": row["address_stateOrRegion"],
-                "distance_km": round(dist, 2),
+                "distance_km": round(dist_rad * EARTH_RADIUS_KM, 2),
                 "latitude": row["latitude"],
                 "longitude": row["longitude"],
                 "specialties": row["specialties"],
                 "type": row["facilityTypeId"],
             })
-
-        distances.sort(key=lambda x: x["distance_km"])
 
         return {
             "agent": "geospatial",
@@ -153,7 +203,7 @@ class GeospatialAgent:
             "origin": {"lat": lat, "lng": lng},
             "k": k,
             "specialty_filter": specialty,
-            "facilities": distances[:k],
+            "facilities": results,
         }
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -167,15 +217,14 @@ class GeospatialAgent:
         max_acceptable_distance_km: float = 50.0,
     ) -> Dict:
         """
-        Grid-based coverage analysis over Ghana's bounding box.
-        Identifies cells where the nearest facility (with an optional specialty
-        filter) exceeds max_acceptable_distance_km.
+        Vectorised grid-based coverage analysis using BallTree.
+        Identifies cells where the nearest facility (optionally specialty-
+        filtered) exceeds max_acceptable_distance_km.
+        Complexity: O(G log N) instead of O(G × N).
         """
-        df = self.valid_coords.copy()
-        if specialty:
-            df = df[df["specialties"].apply(lambda s: specialty in s)]
+        tree, df = self._get_tree_and_df(specialty)
 
-        if len(df) == 0:
+        if tree is None or df.empty:
             return {
                 "agent": "geospatial",
                 "action": "coverage_gap_analysis",
@@ -190,42 +239,42 @@ class GeospatialAgent:
         lats = np.arange(lat_min, lat_max, grid_resolution)
         lngs = np.arange(lng_min, lng_max, grid_resolution)
 
-        fac_coords = list(zip(df["latitude"], df["longitude"]))
-        fac_names = df["name"].tolist()
-        fac_cities = df["address_city"].tolist()
+        # Build grid points matrix  (G × 2) in radians
+        grid_lat, grid_lng = np.meshgrid(lats, lngs, indexing="ij")
+        grid_points = np.column_stack([grid_lat.ravel(), grid_lng.ravel()])
+        grid_rad = np.deg2rad(grid_points)
 
+        # Single vectorised nearest-neighbour query — O(G log N)
+        dist_rad, ind = tree.query(grid_rad, k=1)
+        dist_km = dist_rad[:, 0] * EARTH_RADIUS_KM
+
+        fac_names = df["name"].values
+        fac_cities = df["address_city"].values
+
+        uncovered_mask = dist_km > max_acceptable_distance_km
+        covered_count = int((~uncovered_mask).sum())
+        uncovered_count = int(uncovered_mask.sum())
+
+        # Build cold-spot list from uncovered cells
         cold_spots = []
-        coverage_stats = {"covered": 0, "uncovered": 0}
+        uncovered_indices = np.where(uncovered_mask)[0]
+        # Sort by distance descending to get worst first
+        sort_order = np.argsort(-dist_km[uncovered_indices])
+        for rank, ui in enumerate(sort_order):
+            if rank >= 15:
+                break
+            idx = uncovered_indices[ui]
+            nearest_idx = ind[idx, 0]
+            cold_spots.append({
+                "grid_lat": round(float(grid_points[idx, 0]), 2),
+                "grid_lng": round(float(grid_points[idx, 1]), 2),
+                "nearest_facility": str(fac_names[nearest_idx]),
+                "nearest_city": str(fac_cities[nearest_idx]),
+                "distance_km": round(float(dist_km[idx]), 1),
+            })
 
-        for lat in lats:
-            for lng in lngs:
-                min_dist = float("inf")
-                nearest_fac = None
-                nearest_city = None
-                for idx, (flat, flng) in enumerate(fac_coords):
-                    d = geodesic((lat, lng), (flat, flng)).km
-                    if d < min_dist:
-                        min_dist = d
-                        nearest_fac = fac_names[idx]
-                        nearest_city = fac_cities[idx]
-
-                if min_dist > max_acceptable_distance_km:
-                    coverage_stats["uncovered"] += 1
-                    cold_spots.append({
-                        "grid_lat": round(lat, 2),
-                        "grid_lng": round(lng, 2),
-                        "nearest_facility": nearest_fac,
-                        "nearest_city": nearest_city,
-                        "distance_km": round(min_dist, 1),
-                    })
-                else:
-                    coverage_stats["covered"] += 1
-
-        cold_spots.sort(key=lambda x: x["distance_km"], reverse=True)
-        total_cells = coverage_stats["covered"] + coverage_stats["uncovered"]
-        coverage_pct = round(
-            coverage_stats["covered"] / total_cells * 100, 1
-        ) if total_cells > 0 else 0
+        total_cells = covered_count + uncovered_count
+        coverage_pct = round(covered_count / total_cells * 100, 1) if total_cells > 0 else 0
 
         return {
             "agent": "geospatial",
@@ -235,9 +284,9 @@ class GeospatialAgent:
             "max_acceptable_km": max_acceptable_distance_km,
             "total_grid_cells": total_cells,
             "coverage_percentage": coverage_pct,
-            "cold_spots_found": len(cold_spots),
-            "worst_cold_spots": cold_spots[:15],
-            "coverage_stats": coverage_stats,
+            "cold_spots_found": uncovered_count,
+            "worst_cold_spots": cold_spots,
+            "coverage_stats": {"covered": covered_count, "uncovered": uncovered_count},
         }
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -252,12 +301,11 @@ class GeospatialAgent:
         """
         Identify 'medical deserts' — regions where citizens must travel
         >threshold_km to reach a facility offering a given specialty.
+        Uses BallTree for O(R log N) instead of O(R × N).
         """
-        df = self.valid_coords.copy()
-        if specialty:
-            df = df[df["specialties"].apply(lambda s: specialty in s)]
+        tree, df = self._get_tree_and_df(specialty)
 
-        if len(df) == 0:
+        if tree is None or df.empty:
             return {
                 "agent": "geospatial",
                 "action": "medical_desert_detection",
@@ -266,7 +314,7 @@ class GeospatialAgent:
                 "deserts": [],
             }
 
-        # Check from region centers (approximate)
+        # Use known region coordinates when available, fall back to facility centroid
         region_centers = (
             self.geo_df.dropna(subset=["latitude", "longitude"])
             .groupby("address_stateOrRegion")
@@ -274,18 +322,39 @@ class GeospatialAgent:
             .rename(columns={"name": "total_facilities"})
         )
 
-        fac_coords = list(zip(df["latitude"], df["longitude"]))
-        deserts = []
-
-        for region, rc in region_centers.iterrows():
+        # Override with authoritative region coordinates
+        for region in region_centers.index:
             if pd.isna(region) or region == "Unknown":
                 continue
-            min_dist = float("inf")
-            for flat, flng in fac_coords:
-                d = geodesic((rc["latitude"], rc["longitude"]), (flat, flng)).km
-                if d < min_dist:
-                    min_dist = d  
+            region_key = region.lower().strip()
+            if region_key in GHANA_REGION_COORDS:
+                rlat, rlng = GHANA_REGION_COORDS[region_key]
+                region_centers.at[region, "latitude"] = rlat
+                region_centers.at[region, "longitude"] = rlng
 
+        # Vectorised nearest-neighbour query for all region centers
+        valid_regions = region_centers.drop(
+            index=[r for r in region_centers.index if pd.isna(r) or r == "Unknown"],
+            errors="ignore",
+        )
+        if valid_regions.empty:
+            return {
+                "agent": "geospatial",
+                "action": "medical_desert_detection",
+                "specialty": specialty or "all",
+                "threshold_km": threshold_km,
+                "regions_analyzed": 0,
+                "deserts_found": 0,
+                "deserts": [],
+            }
+
+        center_rad = np.deg2rad(valid_regions[["latitude", "longitude"]].values)
+        dist_rad, _ = tree.query(center_rad, k=1)
+        dist_km = dist_rad[:, 0] * EARTH_RADIUS_KM
+
+        deserts = []
+        for i, (region, rc) in enumerate(valid_regions.iterrows()):
+            min_dist = float(dist_km[i])
             if min_dist > threshold_km:
                 deserts.append({
                     "region": region,
@@ -303,7 +372,7 @@ class GeospatialAgent:
             "action": "medical_desert_detection",
             "specialty": specialty or "all",
             "threshold_km": threshold_km,
-            "regions_analyzed": len(region_centers),
+            "regions_analyzed": len(valid_regions),
             "deserts_found": len(deserts),
             "deserts": deserts,
         }
@@ -452,11 +521,19 @@ class GeospatialAgent:
         elif re.search(r"equit|distribut|fair|balance|region.*compar", ql):
             result = self.regional_equity_analysis()
         elif re.search(r"distance.*between|how far", ql):
-            cities = re.findall(r"(?:between|from)\s+(\w+).*?(?:and|to)\s+(\w+)", ql)
+            # Support multi-word city names like "Cape Coast"
+            cities = re.findall(
+                r"(?:between|from)\s+([\w\s]+?)(?:\s+and\s+|\s+to\s+)([\w\s]+?)(?:\s*\?|$|\s+(?:in|for|region))",
+                ql,
+            )
             if cities:
-                result = self.distance_between_cities(cities[0][0], cities[0][1])
+                result = self.distance_between_cities(cities[0][0].strip(), cities[0][1].strip())
             else:
-                result = self.regional_equity_analysis()
+                result = {
+                    "agent": "geospatial",
+                    "action": "distance_between_cities",
+                    "error": "Could not parse city names from the query. Try: 'distance between Accra and Cape Coast'",
+                }
         else:
             result = self.coverage_gap_analysis(specialty)
 

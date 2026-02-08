@@ -38,13 +38,19 @@ def load_embedding_model(model_name: str = EMBEDDING_MODEL_NAME) -> SentenceTran
     if _model_cache is None:
         print(f"  Loading embedding model: {model_name} ...")
         _model_cache = SentenceTransformer(model_name)
-        print(f"  Model loaded — dimension: {_model_cache.get_sentence_embedding_dimension()}")
+        print(f"  Model loaded - dimension: {_model_cache.get_sentence_embedding_dimension()}")
     return _model_cache
 
 
 def get_qdrant_client() -> QdrantClient:
     global _client_cache
     if _client_cache is None:
+        if not QDRANT_CLOUD_URL or not QDRANT_API_KEY:
+            raise ConnectionError(
+                "Qdrant credentials not configured. "
+                "Set QDRANT_CLOUD_URL and QDRANT_API_KEY in your .env file. "
+                "Vector search will be unavailable."
+            )
         print("  Qdrant Cloud: connecting...")
         _client_cache = QdrantClient(url=QDRANT_CLOUD_URL, api_key=QDRANT_API_KEY)
     return _client_cache
@@ -180,7 +186,18 @@ def search_facilities(
 ) -> List[Dict]:
     client = client or get_qdrant_client()
     model = model or load_embedding_model()
-    query_vector = model.encode(query, normalize_embeddings=True).tolist()
+
+    # Transform query text to match the indexed document format for the
+    # target vector.  The clinical_detail vector was built from structured
+    # text like "Procedures: X | Equipment: Y", so embedding the raw
+    # natural-language query directly causes a semantic gap.
+    _QUERY_TEMPLATES = {
+        VEC_CLINICAL: "Procedures: {q} | Equipment: {q}",
+        VEC_SPECIALTIES: "facility with specialties: {q}",
+        VEC_FULL: "{q}",
+    }
+    query_text = _QUERY_TEMPLATES.get(vector_name, "{q}").format(q=query)
+    query_vector = model.encode(query_text, normalize_embeddings=True).tolist()
 
     conditions = []
     if org_type:
@@ -188,7 +205,13 @@ def search_facilities(
     if facility_type:
         conditions.append(FieldCondition(key="facilityTypeId", match=MatchValue(value=facility_type)))
     if city:
-        conditions.append(FieldCondition(key="address_city", match=MatchValue(value=city)))
+        # Use OR logic: the user might type a city name that is actually a
+        # region (e.g. "Greater Accra"), or vice-versa.  Matching both
+        # fields avoids false-zero results.
+        conditions.append(Filter(should=[
+            FieldCondition(key="address_city", match=MatchValue(value=city)),
+            FieldCondition(key="address_stateOrRegion", match=MatchValue(value=city)),
+        ]))
     if specialties_filter:
         conditions.append(FieldCondition(key="specialties", match=MatchAny(any=specialties_filter)))
 
@@ -230,7 +253,7 @@ def search_facilities(
 # ── Full pipeline ────────────────────────────────────────────────────────────
 
 def run_vectorization_pipeline() -> tuple:
-    print("═══ MedBridge AI — Vectorization Pipeline ═══\n")
+    print("=== MedBridge AI - Vectorization Pipeline ===\n")
     df = run_preprocessing()
     df = build_multi_representations(df)
     model = load_embedding_model()
@@ -254,7 +277,7 @@ def run_vectorization_pipeline() -> tuple:
 
     info = client.get_collection(COLLECTION_FACILITIES)
     print(f"\n  Collection '{COLLECTION_FACILITIES}' has {info.points_count} points")
-    print("═══ Vectorization complete ═══\n")
+    print("=== Vectorization complete ===\n")
     return client, model
 
 

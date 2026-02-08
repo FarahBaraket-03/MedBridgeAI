@@ -88,7 +88,7 @@ def _richness_score(row: pd.Series) -> int:
 
 def load_raw_data(csv_path: Path = CSV_PATH) -> pd.DataFrame:
     df = pd.read_csv(csv_path, dtype=str)
-    print(f"  Loaded {len(df)} rows × {len(df.columns)} columns from {csv_path.name}")
+    print(f"  Loaded {len(df)} rows x {len(df.columns)} columns from {csv_path.name}")
     return df
 
 
@@ -135,7 +135,7 @@ def deduplicate(df: pd.DataFrame) -> pd.DataFrame:
         merged_rows.append(base)
     result = pd.DataFrame(merged_rows)
     result.drop(columns=["_richness"], inplace=True, errors="ignore")
-    print(f"  Deduplicated: {len(df)} rows → {len(result)} unique facilities/NGOs")
+    print(f"  Deduplicated: {len(df)} rows -> {len(result)} unique facilities/NGOs")
     return result
 
 
@@ -235,12 +235,12 @@ def run_preprocessing(csv_path: Path = CSV_PATH) -> pd.DataFrame:
     if _preprocessing_cache is not None:
         return _preprocessing_cache.copy()
 
-    print("─── Data Preprocessing Pipeline ───")
+    print("--- Data Preprocessing Pipeline ---")
     df = load_raw_data(csv_path)
     df = clean_and_parse(df)
     df = deduplicate(df)
     df = build_documents(df)
-    print("─── Preprocessing complete ───\n")
+    print("--- Preprocessing complete ---\n")
 
     _preprocessing_cache = df
     return df.copy()

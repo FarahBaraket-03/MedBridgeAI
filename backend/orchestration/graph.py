@@ -118,6 +118,7 @@ def supervisor_node(state: MedBridgeState) -> dict:
         "agent": "supervisor",
         "action": "classify_intent",
         "intent": plan.primary_intent,
+        "confidence": plan.confidence,
         "agents": plan.required_agents,
         "flow": plan.execution_flow,
         "steps": plan.steps,
@@ -158,10 +159,29 @@ def genie_node(state: MedBridgeState) -> dict:
 
 
 def vector_search_node(state: MedBridgeState) -> dict:
-    """Semantic search agent node."""
+    """Semantic search agent node.
+
+    Includes a self-correction loop: if the first search returns zero
+    results (likely because metadata filters were too restrictive), a
+    second search is run *without* filters to ensure the user gets
+    meaningful output.
+    """
     t0 = time.time()
     vs = _get_vector_search()
     result = vs.search(state["query"])
+
+    # ── Feedback loop: retry without filters if zero results ──
+    retried = False
+    if result.get("count", 0) == 0 and result.get("filters_applied"):
+        logger.info("Vector search returned 0 results with filters %s — retrying unfiltered",
+                     result["filters_applied"])
+        # Retry with the raw query (no metadata filters)
+        result_retry = vs.search(state["query"].split(" in ")[0].split(" near ")[0])
+        if result_retry.get("count", 0) > 0:
+            result = result_retry
+            result["_note"] = "Retried without location filter (original returned 0 results)"
+            retried = True
+
     result["duration_ms"] = round((time.time() - t0) * 1000, 2)
 
     idx = state.get("current_agent_index", 0)
@@ -170,9 +190,13 @@ def vector_search_node(state: MedBridgeState) -> dict:
         "trace": [{
             "agent": "vector_search",
             "action": result.get("action", "semantic_search"),
-            "vector_used": result.get("vector_used", "full_document"),
+            "search_method": result.get("search_method", "single_vector"),
+            "vectors_queried": result.get("vectors_queried", []),
+            "vector_weights": result.get("vector_weights", {}),
+            "vector_used": result.get("primary_vector", result.get("vector_used", "full_document")),
             "duration_ms": result["duration_ms"],
-            "summary": f"Found {len(result.get('results', []))} matching facilities",
+            "retried_unfiltered": retried,
+            "summary": f"Found {len(result.get('results', []))} matching facilities" + (" (retried)" if retried else ""),
         }],
         "citations": result.get("citations", []),
         "current_agent_index": idx + 1,

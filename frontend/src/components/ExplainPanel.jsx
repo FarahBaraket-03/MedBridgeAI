@@ -2,6 +2,8 @@
 // ExplainPanel — Plain-language explanations for NGO planners
 // ────────────────────────────────────────────────────────────────
 
+import renderMarkdown from '../utils/renderMarkdown'
+
 /**
  * Transforms technical agent output from medical_reasoning and planning
  * into clear, actionable explanations that non-technical NGO personnel
@@ -66,7 +68,7 @@ function ExplainCard({ icon, title, paragraphs, actions, severity, highlights })
       </div>
 
       {paragraphs?.map((p, i) => (
-        <p key={i} className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{p}</p>
+        <p key={i} className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{renderMarkdown(p)}</p>
       ))}
 
       {highlights && highlights.length > 0 && (
@@ -169,9 +171,9 @@ function buildExplanations(agent, data) {
         icon: '🔬', title: 'Unusual Facility Patterns Detected',
         severity: anomalies > 5 ? 'warning' : 'good',
         paragraphs: [
-          `Our AI scanned ${total} facilities using statistical analysis to find ones that look unusual compared to others.`,
+          `Our AI scanned ${total} facilities using a two-stage statistical pipeline: first, an **Isolation Forest** algorithm flags statistical outliers, then **Mahalanobis distance** validation confirms only the true anomalies (filtering out false positives).`,
           anomalies > 0
-            ? `${anomalies} facilities stood out as statistically unusual. This doesn't necessarily mean something is wrong — but they deserve a closer look.`
+            ? `${anomalies} facilities were confirmed as genuinely unusual by both stages.${data.stage1_outliers ? ` (Stage 1 initially flagged ${data.stage1_outliers}, but only ${data.stage2_confirmed || anomalies} survived the Mahalanobis check.)` : ''}`
             : `No unusual patterns were detected. All facilities have consistent data profiles.`,
           'Common reasons for anomalies: a facility claims many specialties but has very little equipment, or has a very high patient-to-doctor ratio.',
         ],
@@ -332,7 +334,7 @@ function buildExplanations(agent, data) {
         severity: 'good',
         paragraphs: [
           `We've designed an optimized travel route for a visiting ${data.specialty || ''} specialist to reach ${stops.length} underserved facilities.`,
-          dist ? `The total route covers ${dist.toFixed(0)} km. The route is ordered to minimize travel time, starting from Accra.` : null,
+          dist ? `The total route covers ${dist.toFixed(0)} km.${data.optimisation ? ` The route was optimised using a **greedy nearest-neighbour** algorithm followed by **2-opt local search**, which reverses route segments to reduce backtracking (typically 20–25% shorter than naïve ordering).` : ' The route is ordered to minimize travel time, starting from Accra.'}` : null,
           'Each stop represents a facility that currently does NOT have this specialty — meaning communities there have no local access to this type of care.',
         ].filter(Boolean),
         highlights: stops.slice(0, 6).map((s, i) => ({
@@ -390,11 +392,11 @@ function buildExplanations(agent, data) {
         icon: '📍', title: `New Facility Recommendations — ${data.specialty || 'General'}`,
         severity: criticalCount > 2 ? 'critical' : criticalCount > 0 ? 'warning' : 'good',
         paragraphs: [
-          `We analyzed the geographic distribution of ${data.specialty || 'healthcare'} facilities across all regions of Ghana.`,
+          `We analyzed the geographic distribution of ${data.specialty || 'healthcare'} facilities across all regions of Ghana${data.algorithm ? ` using the **maximin placement algorithm** — it finds the points farthest from any existing facility, ensuring new placements maximise coverage` : ''}.`,
           criticalCount > 0
-            ? `${criticalCount} regions have ZERO facilities for this specialty — these are the most urgent areas to address.`
+            ? `${criticalCount} locations are more than 100 km from any existing facility — these are the most urgent areas to address.`
             : 'All regions have at least some coverage, though many could benefit from expansion.',
-          `In total, ${suggestions.length} regions were identified as needing new facilities or expanded services.`,
+          `In total, ${suggestions.length} optimal sites were identified, each with exact GPS coordinates for field teams.`,
         ],
         highlights: suggestions.slice(0, 5).map(s => ({
           icon: s.priority === 'critical' ? '🔴' : '🟡',
@@ -537,12 +539,16 @@ function buildExplanations(agent, data) {
   // ═══ VECTOR SEARCH / GENIE EXPLANATIONS ════════════════════════════
   if (agent === 'vector_search' || data.agent === 'vector_search') {
     const count = data.count || data.results?.length || 0
+    const method = data.search_method === 'reciprocal_rank_fusion' ? 'Reciprocal Rank Fusion (RRF)' : 'semantic'
+    const vectorCount = data.vectors_queried?.length || 1
     sections.push({
       icon: '🔎', title: 'Search Results Explained',
       severity: 'good',
       paragraphs: [
         `We searched our database of healthcare facilities and found ${count} matching results.`,
-        'Results are ranked by how closely they match your question, using AI-powered semantic search.',
+        vectorCount > 1
+          ? `Results were ranked using **${method}** across ${vectorCount} independent embedding vectors (clinical detail, specialties context, and full document). This means your query was matched from multiple angles simultaneously for more accurate ranking.`
+          : 'Results are ranked by how closely they match your question, using AI-powered semantic search.',
       ],
       actions: [
         count > 0 ? 'Review the Results tab for the full list of matching facilities' : 'Try rephrasing your question or broadening the search criteria',

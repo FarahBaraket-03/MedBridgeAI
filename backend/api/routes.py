@@ -13,8 +13,33 @@ from pydantic import BaseModel
 from backend.orchestration.graph import run_query
 from backend.core.preprocessing import run_preprocessing
 from backend.agents.planning.agent import PlanningAgent
+from backend.core.databricks import (
+    is_databricks_backend,
+    get_mlflow_run_info,
+    get_serving_endpoint_status,
+)
 
 router = APIRouter()
+
+# ── Cached agent singletons (avoid re-processing CSV per request) ────────────
+_planning_agent: Optional[PlanningAgent] = None
+_geospatial_agent = None  # lazy-imported
+_medical_reasoning_agent = None  # lazy-imported
+
+
+def _get_planning_agent() -> PlanningAgent:
+    global _planning_agent
+    if _planning_agent is None:
+        _planning_agent = PlanningAgent()
+    return _planning_agent
+
+
+def _get_geospatial_agent():
+    global _geospatial_agent
+    if _geospatial_agent is None:
+        from backend.agents.geospatial.agent import GeospatialAgent
+        _geospatial_agent = GeospatialAgent()
+    return _geospatial_agent
 
 
 # ── Request / Response Models ────────────────────────────────────────────────
@@ -107,11 +132,19 @@ async def health():
 @router.post("/query", response_model=QueryResponse)
 async def query_endpoint(req: QueryRequest):
     """Run a natural language query through the LangGraph multi-agent workflow."""
+    # Guard: reject empty or excessively long queries
+    if not req.query or not req.query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    if len(req.query) > 2000:
+        raise HTTPException(status_code=400, detail="Query too long (max 2000 characters)")
+
     t0 = time.time()
     try:
         result = run_query(req.query, req.context)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Internal processing error. Please try again.")
 
     return QueryResponse(
         query=result.get("query", req.query),
@@ -245,6 +278,7 @@ class PlanningRequest(BaseModel):
     specialty: str | None = None
     equipment_type: str | None = None
     origin_city: str | None = None
+    use_quantum: bool = False
 
 
 class RoutingMapRequest(BaseModel):
@@ -256,12 +290,9 @@ class RoutingMapRequest(BaseModel):
 @router.post("/routing-map")
 async def get_routing_map_data(req: RoutingMapRequest):
     """Generate full routing map data with facilities, route, and reasoning steps."""
-    from backend.agents.geospatial.agent import GeospatialAgent
-    from backend.agents.medical_reasoning.agent import MedicalReasoningAgent
-
     try:
-        planning = PlanningAgent()
-        geo = GeospatialAgent()
+        planning = _get_planning_agent()
+        geo = _get_geospatial_agent()
 
         # Geocode origin city if provided
         origin_lat, origin_lng = None, None
@@ -371,7 +402,7 @@ async def get_routing_map_data(req: RoutingMapRequest):
 async def execute_planning(req: PlanningRequest):
     """Execute a planning scenario directly."""
     try:
-        agent = PlanningAgent()
+        agent = _get_planning_agent()
         # Build a natural-language query from the scenario params
         query_parts = [req.scenario.replace("_", " ")]
         if req.specialty:
@@ -383,10 +414,9 @@ async def execute_planning(req: PlanningRequest):
         query = " ".join(query_parts)
 
         # Build context with coordinates if origin_city provided
-        context = {}
+        context = {"use_quantum": req.use_quantum}
         if req.origin_city:
-            from backend.agents.geospatial.agent import GeospatialAgent
-            geo = GeospatialAgent()
+            geo = _get_geospatial_agent()
             city_match = geo.valid_coords[
                 geo.valid_coords["address_city"].str.contains(req.origin_city, case=False, na=False)
             ]
@@ -398,3 +428,66 @@ async def execute_planning(req: PlanningRequest):
         return {"status": "ok", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── MLOps / Databricks endpoints ─────────────────────────────────────────────
+
+@router.get("/mlops/status")
+async def mlops_status():
+    """
+    Return the current MLOps pipeline status:
+    - Which vector search backend is active (qdrant / databricks)
+    - Databricks Model Serving endpoint health
+    - Latest MLflow run metrics
+    """
+    backend = "databricks" if is_databricks_backend() else "qdrant"
+
+    return {
+        "vector_search_backend": backend,
+        "serving_endpoint": get_serving_endpoint_status(),
+        "latest_mlflow_run": get_mlflow_run_info(),
+    }
+
+
+@router.get("/mlops/pipeline")
+async def mlops_pipeline_info():
+    """
+    Return the full MLOps pipeline configuration for the dashboard.
+    Shows the data flow: CSV -> Preprocessing -> Embedding -> Delta/Qdrant -> Search
+    """
+    from backend.core.config import (
+        EMBEDDING_MODEL_NAME, EMBEDDING_DIM, COLLECTION_FACILITIES,
+        DATABRICKS_HOST, DATABRICKS_SERVING_ENDPOINT, VECTOR_SEARCH_BACKEND,
+    )
+
+    facilities = _get_facilities()
+    with_coords = sum(1 for f in facilities if f["latitude"] is not None)
+
+    return {
+        "pipeline": {
+            "data_source": "Virtue Foundation Ghana CSV",
+            "preprocessing": {
+                "total_facilities": len(facilities),
+                "with_coordinates": with_coords,
+                "steps": ["load_csv", "clean_parse", "deduplicate", "geocode", "build_documents"],
+            },
+            "embedding": {
+                "model": EMBEDDING_MODEL_NAME,
+                "dimension": EMBEDDING_DIM,
+                "vectors": ["full_document", "clinical_detail", "specialties_context"],
+                "normalization": "L2 (cosine-ready)",
+            },
+            "vector_store": {
+                "active_backend": VECTOR_SEARCH_BACKEND,
+                "collection": COLLECTION_FACILITIES,
+                "databricks_host": DATABRICKS_HOST[:40] + "..." if DATABRICKS_HOST and len(DATABRICKS_HOST) > 40 else DATABRICKS_HOST,
+                "serving_endpoint": DATABRICKS_SERVING_ENDPOINT,
+            },
+            "search": {
+                "method": "reciprocal_rank_fusion",
+                "rrf_k": 60,
+                "multi_vector": True,
+                "metadata_filtering": True,
+            },
+        },
+    }

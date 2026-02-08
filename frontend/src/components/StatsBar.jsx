@@ -9,20 +9,27 @@ export default function StatsBar({ stats }) {
     )
   }
 
+  const COLOR_GLOWS = {
+    'var(--cyan)': 'rgba(0,243,255,0.35)',
+    'var(--purple)': 'rgba(131,56,236,0.35)',
+    'var(--green)': 'rgba(6,255,165,0.35)',
+    'var(--pink)': 'rgba(255,0,110,0.35)',
+  }
+
   const items = [
     { label: 'FACILITIES', value: stats.total_facilities, color: 'var(--cyan)' },
-    { label: 'REGIONS', value: stats.top_regions?.length || 16, color: 'var(--purple)' },
-    { label: 'SPECIALTIES', value: '45+', color: 'var(--green)' },
+    { label: 'REGIONS', value: stats.all_regions?.length || stats.top_regions?.length || '—', color: 'var(--purple)' },
+    { label: 'SPECIALTIES', value: stats.unique_specialties || '—', color: 'var(--green)' },
     { label: 'BED CAPACITY', value: stats.total_beds, color: 'var(--pink)' },
   ]
 
   return (
-    <div className="flex justify-center gap-12 py-3">
+    <div className="flex justify-center flex-wrap gap-8 sm:gap-12 py-3">
       {items.map(item => (
         <div key={item.label} className="flex flex-col items-center">
           <span
             className="font-mono text-2xl font-extrabold"
-            style={{ color: item.color, textShadow: `0 0 12px rgba(0,243,255,0.35)` }}
+            style={{ color: item.color, textShadow: `0 0 12px ${COLOR_GLOWS[item.color] || 'rgba(0,243,255,0.35)'}` }}
           >
             {typeof item.value === 'number' ? item.value.toLocaleString() : item.value}
           </span>

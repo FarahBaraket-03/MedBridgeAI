@@ -204,7 +204,16 @@ def classify_intent_llm(query: str) -> Optional[Dict]:
             lines = [l for l in lines if not l.strip().startswith("```")]
             cleaned = "\n".join(lines)
 
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
+
+        # Validate agent names — LLM can hallucinate names that don't exist
+        VALID_AGENTS = {"genie", "vector_search", "medical_reasoning", "geospatial", "planning"}
+        if "agents" in parsed:
+            parsed["agents"] = [a for a in parsed["agents"] if a in VALID_AGENTS]
+            if not parsed["agents"]:
+                parsed["agents"] = ["vector_search"]  # safe fallback
+
+        return parsed
     except Exception as e:
         logger.warning(f"LLM intent classification failed: {e}")
         return None
@@ -245,19 +254,43 @@ def enhance_query(query: str) -> str:
 #  HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _truncate_data(data: dict, max_items: int = 10) -> dict:
-    """Truncate large result sets to fit within token limits."""
+def _truncate_data(data: dict, max_items: int = 10, max_total_chars: int = 6000) -> dict:
+    """Truncate large result sets to fit within the LLM context window.
+
+    Uses a *character budget* instead of the old per-list cap.  This
+    prevents the case where 3 agents each contribute 10 items, producing
+    a combined prompt that overflows the Groq token limit.
+    """
     truncated = {}
+    remaining = max_total_chars
     for key, value in data.items():
-        if isinstance(value, list) and len(value) > max_items:
-            truncated[key] = value[:max_items]
-            truncated[f"_{key}_note"] = f"Showing {max_items} of {len(value)} total"
-        elif isinstance(value, dict) and len(str(value)) > 2000:
-            # Truncate very large nested dicts
+        if remaining <= 0:
+            break
+        if isinstance(value, list):
+            serialized = json.dumps(value[:max_items], default=str)
+            if len(serialized) > remaining:
+                # Binary-search for the largest slice that fits
+                lo, hi = 0, min(len(value), max_items)
+                while lo < hi:
+                    mid = (lo + hi + 1) // 2
+                    if len(json.dumps(value[:mid], default=str)) <= remaining:
+                        lo = mid
+                    else:
+                        hi = mid - 1
+                value = value[:lo]
+                serialized = json.dumps(value, default=str)
+            truncated[key] = value
+            if len(value) < len(data.get(key, [])):
+                truncated[f"_{key}_note"] = f"Showing {len(value)} of {len(data[key])} total"
+            remaining -= len(serialized)
+        elif isinstance(value, dict) and len(str(value)) > remaining:
             truncated[key] = {k: v for i, (k, v) in enumerate(value.items()) if i < 10}
             truncated[f"_{key}_note"] = "Truncated for brevity"
+            remaining -= min(len(str(truncated[key])), remaining)
         else:
+            serialized = json.dumps(value, default=str) if not isinstance(value, str) else value
             truncated[key] = value
+            remaining -= len(serialized)
     return truncated
 
 

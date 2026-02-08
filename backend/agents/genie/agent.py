@@ -111,12 +111,27 @@ class GenieChatAgent:
 
     # ── Query handlers ───────────────────────────────────────────────────────
 
-    def count_with_specialty(self, specialty: str, facility_type: Optional[str] = None) -> Dict:
+    def _is_negated(self, query: str) -> bool:
+        """Detect negation intent so filters can be inverted.
+
+        Catches patterns like 'facilities that do NOT have cardiology',
+        'hospitals without MRI', 'clinics that don't offer surgery'.
+        """
+        return bool(re.search(
+            r"\b(not|without|don.t|doesn.t|don't|doesn't|no\s+\w+|lack|missing|absent)\b",
+            query.lower(),
+        ))
+
+    def count_with_specialty(self, specialty: str, facility_type: Optional[str] = None,
+                             negated: bool = False) -> Dict:
         mask = self.flat_df["specialties"].apply(lambda s: isinstance(s, list) and specialty in s)
+        if negated:
+            mask = ~mask  # invert: facilities WITHOUT this specialty
         if facility_type:
             mask &= self.flat_df["facilityTypeId"].str.lower().fillna("") == facility_type.lower()
         matched = self.flat_df[mask]
-        sql = f"SELECT COUNT(*) FROM facilities WHERE '{specialty}' IN specialties"
+        neg_word = "NOT " if negated else ""
+        sql = f"SELECT COUNT(*) FROM facilities WHERE '{specialty}' {neg_word}IN specialties"
         if facility_type:
             sql += f" AND facilityTypeId = '{facility_type}'"
         return {
@@ -194,13 +209,37 @@ class GenieChatAgent:
     def anomaly_bed_doctor_ratio(self) -> Dict:
         df = self.flat_df.dropna(subset=["capacity", "numberDoctors"])
         df = df[(df["capacity"] > 0) & (df["numberDoctors"] > 0)].copy()
+
+        if df.empty:
+            return {
+                "sql": "SELECT *, capacity/numberDoctors AS ratio FROM facilities -- no valid rows",
+                "count": 0,
+                "anomalies": [],
+                "avg_ratio": None,
+                "threshold": None,
+                "iqr_stats": {},
+            }
+
         df["bed_to_doctor"] = df["capacity"] / df["numberDoctors"]
-        anomalies = df[df["bed_to_doctor"] > 50]
+
+        # IQR-based outlier detection instead of a hardcoded threshold.
+        # Adapts to the actual data distribution so it works correctly
+        # regardless of whether the dataset is mostly rural clinics
+        # (median ~10) or teaching hospitals (median ~30).
+        q25 = df["bed_to_doctor"].quantile(0.25)
+        q75 = df["bed_to_doctor"].quantile(0.75)
+        iqr = q75 - q25
+        upper_fence = q75 + 1.5 * iqr
+        threshold = max(upper_fence, 20.0)  # never below 20 to avoid noise
+
+        anomalies = df[df["bed_to_doctor"] > threshold]
         return {
-            "sql": "SELECT *, capacity/numberDoctors AS ratio FROM facilities WHERE ratio > 50",
+            "sql": f"SELECT *, capacity/numberDoctors AS ratio FROM facilities WHERE ratio > {threshold:.1f} (IQR-derived)",
             "count": len(anomalies),
             "anomalies": anomalies[["name", "capacity", "numberDoctors", "bed_to_doctor"]].to_dict("records"),
             "avg_ratio": round(df["bed_to_doctor"].mean(), 1) if len(df) > 0 else None,
+            "threshold": round(threshold, 1),
+            "iqr_stats": {"q25": round(q25, 1), "q75": round(q75, 1), "iqr": round(iqr, 1)},
         }
 
     def single_point_of_failure(self) -> Dict:
@@ -222,11 +261,12 @@ class GenieChatAgent:
         ftype = self._extract_facility_type(query)
         region = self._extract_region(query)
         procedure = self._extract_procedure(query)
+        negated = self._is_negated(query)
         ql = query.lower()
 
         if re.search(r"how many|count|number of", ql):
             if specialty:
-                result = self.count_with_specialty(specialty, ftype)
+                result = self.count_with_specialty(specialty, ftype, negated=negated)
             elif procedure:
                 result = self.facilities_with_procedure(procedure, region)
             elif region:

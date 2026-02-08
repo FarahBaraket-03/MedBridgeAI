@@ -15,13 +15,13 @@ from backend.api.routes import router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Warm up agent singletons on startup."""
-    print("🚀 MedBridge AI — warming up agents…")
+    print("[*] MedBridge AI - warming up agents...")
     # Pre-load the orchestration workflow (loads data + models once)
     from backend.orchestration.graph import build_workflow
     build_workflow()
-    print("✅ Agents ready")
+    print("[+] Agents ready")
     yield
-    print("👋 Shutting down MedBridge AI")
+    print("[*] Shutting down MedBridge AI")
 
 
 app = FastAPI(

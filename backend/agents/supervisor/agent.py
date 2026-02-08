@@ -2,7 +2,7 @@
 MedBridge AI — AGENT 1: Supervisor Agent (The Router)
 ======================================================
 Routes incoming queries to the appropriate agent(s) based on intent.
-Uses regex-based classification with optional LLM enhancement.
+Uses embedding-based semantic classification with regex fallback.
 
 INPUT:  Natural language query
 OUTPUT: Execution plan with identified agents and workflow steps
@@ -13,6 +13,8 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+import numpy as np
 
 
 class IntentType(str, Enum):
@@ -206,13 +208,213 @@ ROUTING_TABLE: Dict[IntentType, Dict] = {
 }
 
 
+# ── Exemplar bank for embedding-based classification ─────────────────────────
+# Each intent maps to 4-8 representative queries. At startup, these are
+# embedded once and stored.  At runtime, the user query is embedded and
+# compared via cosine similarity.  The top-1/top-2 gap becomes a natural
+# confidence metric.
+
+INTENT_EXEMPLARS: Dict[IntentType, List[str]] = {
+    IntentType.COUNT: [
+        "How many hospitals are in the Greater Accra region?",
+        "Count the clinics in Kumasi",
+        "Total number of facilities offering cardiology",
+        "How many NGOs are registered?",
+    ],
+    IntentType.AGGREGATE: [
+        "Which region has the most hospitals?",
+        "Distribution of facilities by region",
+        "Breakdown of specialties across regions",
+        "Aggregate doctor count per region",
+        "Group by region and show facility counts",
+    ],
+    IntentType.ANOMALY_DETECTION: [
+        "Find anomalies in the facility data",
+        "Which facilities have unusual bed to doctor ratios?",
+        "Detect suspicious patterns in facility claims",
+        "Are there facilities with implausible statistics?",
+        "Find facilities whose characteristics don't match",
+    ],
+    IntentType.VALIDATION: [
+        "Can this facility really offer neurosurgery?",
+        "Validate whether the hospital has proper equipment for cardiac surgery",
+        "This clinic claims dialysis but lacks equipment — is it legitimate?",
+        "Are the subspecialty claims supported by their infrastructure?",
+        "Verify the facility's capability claims",
+    ],
+    IntentType.DISTANCE_QUERY: [
+        "Find hospitals within 30 km of Accra",
+        "What is the nearest clinic to Tamale?",
+        "How far is the closest eye hospital from Cape Coast?",
+        "Show facilities near Kumasi within 50km radius",
+        "Which facility is closest to my location?",
+    ],
+    IntentType.COVERAGE_GAP: [
+        "Where are the coverage gaps in Ghana's healthcare?",
+        "Identify underserved areas lacking healthcare access",
+        "Which areas have no hospital within 50km?",
+        "Find cold spots in healthcare coverage",
+        "Where do people lack access to emergency care?",
+    ],
+    IntentType.MEDICAL_DESERT: [
+        "Identify medical deserts in Ghana",
+        "Which regions are healthcare deserts?",
+        "Where is there no coverage for cardiology?",
+        "Find geographic gaps in specialty coverage",
+        "What are the largest healthcare coverage gaps?",
+    ],
+    IntentType.SINGLE_POINT_FAILURE: [
+        "Which specialties depend on only one facility?",
+        "Find single points of failure in the healthcare system",
+        "Are there rare specialties concentrated in few facilities?",
+        "What specialties have dangerous concentration?",
+        "Identify oversupply vs scarcity in specialties",
+    ],
+    IntentType.FACILITY_LOOKUP: [
+        "Tell me about Korle-Bu Teaching Hospital",
+        "What services does Tamale Central Hospital offer?",
+        "Give me details about this facility",
+        "Show information about the Eye clinic in Accra",
+    ],
+    IntentType.SERVICE_SEARCH: [
+        "Which hospitals offer cardiac surgery?",
+        "Find clinics that can handle emergency trauma",
+        "Where can I get a CT scan in the Northern Region?",
+        "List facilities that provide dialysis treatment",
+        "Which facilities offer pediatric care?",
+    ],
+    IntentType.SPECIALTY_SEARCH: [
+        "Which facilities have ophthalmology specialists?",
+        "Where are neurosurgeons practicing in Ghana?",
+        "Show facilities with visiting vs permanent specialists",
+        "Find facilities with orthopedic specialty",
+    ],
+    IntentType.COMPARISON: [
+        "Compare urban vs rural healthcare facilities",
+        "What's the difference between Ashanti and Northern regions?",
+        "Compare hospital capacity between regions",
+        "How do regions differ in specialty coverage?",
+    ],
+    IntentType.PLANNING: [
+        "Plan an emergency route for a trauma patient in the north",
+        "Deploy a specialist rotation for cardiology",
+        "Where should we build a new hospital?",
+        "Plan equipment distribution for CT scanners",
+        "Create a capacity plan for the Northern Region",
+        "What's the optimal location for a new facility?",
+        "Recommend where to send mobile health units",
+    ],
+}
+
+
 class SupervisorAgent:
     """
-    Intent classification → agent routing → execution plan generation.
+    Embedding-based intent classification → agent routing → execution plan.
+    Falls back to regex when the embedding model is unavailable.
     """
 
+    def __init__(self):
+        self._embeddings_ready = False
+        self._intent_keys: List[IntentType] = []
+        self._exemplar_embeddings: Optional[np.ndarray] = None  # (N, dim)
+        self._exemplar_intent_map: List[IntentType] = []         # length N
+        self._model = None
+        self._init_embeddings()
+
+    # ── Startup: embed all exemplars once ────────────────────────────────────
+
+    def _init_embeddings(self):
+        """Pre-embed all exemplar queries.  Lazy-imports the model singleton."""
+        try:
+            from backend.core.vectorstore import load_embedding_model
+            self._model = load_embedding_model()
+
+            all_texts: List[str] = []
+            intent_map: List[IntentType] = []
+            for intent, exemplars in INTENT_EXEMPLARS.items():
+                for text in exemplars:
+                    all_texts.append(text)
+                    intent_map.append(intent)
+
+            vecs = self._model.encode(
+                all_texts, normalize_embeddings=True, convert_to_numpy=True
+            )
+            self._exemplar_embeddings = vecs            # (N, dim)
+            self._exemplar_intent_map = intent_map      # length N
+            self._embeddings_ready = True
+        except Exception:
+            # Fall back to regex if model loading fails
+            self._embeddings_ready = False
+
+    # ── Core classification ──────────────────────────────────────────────────
+
     def classify_intent(self, query: str) -> IntentType:
-        """Classify query intent using regex pattern matching."""
+        """
+        Classify query intent using embedding cosine similarity.
+        Falls back to regex if embeddings are unavailable.
+        """
+        if self._embeddings_ready:
+            return self._classify_embedding(query)
+        return self._classify_regex(query)
+
+    def classify_intent_with_confidence(self, query: str) -> tuple:
+        """Return (IntentType, confidence: float).
+        Confidence = gap between top-1 and top-2 similarity scores,
+        normalised to [0, 1].
+        """
+        if self._embeddings_ready:
+            return self._classify_embedding_with_confidence(query)
+        intent = self._classify_regex(query)
+        return intent, 1.0 if intent != IntentType.GENERAL else 0.3
+
+    def _classify_embedding(self, query: str) -> IntentType:
+        intent, _ = self._classify_embedding_with_confidence(query)
+        return intent
+
+    def _classify_embedding_with_confidence(self, query: str) -> tuple:
+        """Embed query, compute cosine similarity against all exemplars,
+        aggregate by intent (top-2-mean pooling), return best intent + confidence.
+
+        Top-2 mean pooling is more robust than max-pool: a single lucky
+        exemplar can't dominate the score.  Confidence uses a sigmoid
+        centred at gap=0.05 instead of a linear scale, giving more honest
+        values for typical sentence-embedding score distributions.
+        """
+        query_vec = self._model.encode(
+            query, normalize_embeddings=True, convert_to_numpy=True
+        )
+        # Cosine similarity (vectors already L2-normalised)
+        sims = self._exemplar_embeddings @ query_vec        # (N,)
+
+        # Top-2-mean pooling per intent (more robust than max-pool)
+        from collections import defaultdict
+        intent_sim_lists: Dict[IntentType, List[float]] = defaultdict(list)
+        for sim, intent in zip(sims, self._exemplar_intent_map):
+            intent_sim_lists[intent].append(float(sim))
+
+        intent_scores: Dict[IntentType, float] = {}
+        for intent, scores in intent_sim_lists.items():
+            top2 = sorted(scores, reverse=True)[:2]
+            intent_scores[intent] = sum(top2) / len(top2)
+
+        ranked = sorted(intent_scores.items(), key=lambda x: x[1], reverse=True)
+        best_intent, best_score = ranked[0]
+        second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+
+        # Confidence via sigmoid centred at gap=0.05
+        gap = best_score - second_score
+        confidence = round(1.0 / (1.0 + np.exp(-20 * (gap - 0.05))), 2)
+
+        # If confidence is very low, there may be multiple relevant intents
+        if best_score < 0.25:
+            return IntentType.GENERAL, 0.1
+
+        return best_intent, confidence
+
+    # ── Regex fallback (unchanged from original) ─────────────────────────────
+
+    def _classify_regex(self, query: str) -> IntentType:
+        """Classify query intent using regex pattern matching (fallback)."""
         query_lower = query.lower()
         scores: Dict[IntentType, int] = {}
 
@@ -224,16 +426,33 @@ class SupervisorAgent:
         if not scores:
             return IntentType.GENERAL
 
-        # Return highest-scoring intent
         return max(scores, key=scores.get)
 
     def create_execution_plan(self, query: str) -> ExecutionPlan:
-        """Generate a full execution plan for the query."""
-        intent = self.classify_intent(query)
+        """Generate a full execution plan for the query.
+
+        For complex queries that span multiple intents (e.g. 'compare
+        cardiology coverage gaps between regions and identify medical
+        deserts'), we detect secondary intents with similarity above a
+        threshold and merge their agent lists.  This prevents complex
+        queries from being artificially funneled into a single intent's
+        agent set.
+        """
+        intent, confidence = self.classify_intent_with_confidence(query)
         routing = ROUTING_TABLE.get(intent, ROUTING_TABLE[IntentType.GENERAL])
 
         agents = [a.value for a in routing["agents"]]
         flow = routing["flow"]
+
+        # Multi-intent expansion: if embedding classification is available,
+        # detect secondary intents and union their agents.
+        if self._embeddings_ready:
+            extra_agents = self._detect_secondary_intents(query, intent)
+            for ea in extra_agents:
+                if ea not in agents:
+                    agents.append(ea)
+            if len(agents) > 2:
+                flow = "sequential"  # many agents → sequential is safer
 
         steps = []
         for i, agent_name in enumerate(agents, 1):
@@ -246,7 +465,42 @@ class SupervisorAgent:
             required_agents=agents,
             execution_flow=flow,
             steps=steps,
+            confidence=confidence,
         )
+
+    def _detect_secondary_intents(self, query: str, primary: IntentType) -> List[str]:
+        """Return agent names from secondary intents whose similarity
+        score is above a relevance threshold (0.40).  Only returns agents
+        not already covered by the primary intent.
+        """
+        query_vec = self._model.encode(
+            query, normalize_embeddings=True, convert_to_numpy=True
+        )
+        sims = self._exemplar_embeddings @ query_vec
+
+        from collections import defaultdict
+        intent_sims: Dict[IntentType, List[float]] = defaultdict(list)
+        for sim, intent in zip(sims, self._exemplar_intent_map):
+            intent_sims[intent].append(float(sim))
+
+        # Top-2 mean per intent
+        intent_scores = {
+            intent: sum(sorted(scores, reverse=True)[:2]) / min(len(scores), 2)
+            for intent, scores in intent_sims.items()
+        }
+
+        primary_agents = {a.value for a in ROUTING_TABLE.get(primary, {}).get("agents", [])}
+
+        extra: List[str] = []
+        for intent, score in intent_scores.items():
+            if intent == primary or score < 0.40:
+                continue
+            for agent in ROUTING_TABLE.get(intent, {}).get("agents", []):
+                aval = agent.value
+                if aval not in primary_agents and aval not in extra:
+                    extra.append(aval)
+
+        return extra
 
     def _describe_step(self, agent_name: str, query: str, intent: IntentType) -> str:
         """Generate a human-readable description of what this agent will do."""

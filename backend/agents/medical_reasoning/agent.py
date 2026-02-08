@@ -17,8 +17,15 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+from scipy.spatial.distance import mahalanobis
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
+
+try:
+    from rapidfuzz import fuzz as _fuzz
+    _RAPIDFUZZ_AVAILABLE = True
+except ImportError:
+    _RAPIDFUZZ_AVAILABLE = False
 
 from backend.core.config import (
     ADVANCED_PROCEDURE_REQUIREMENTS,
@@ -105,9 +112,9 @@ class MedicalReasoningAgent:
                 if not self._specialty_matches_procedure(spec, proc_key):
                     continue
 
-                # Check required equipment
+                # Check required equipment (fuzzy matching)
                 for req_equip in reqs.get("required_equipment", []):
-                    if req_equip.lower() not in all_text:
+                    if not self._fuzzy_text_match(req_equip, all_text):
                         issues.append({
                             "type": "missing_equipment",
                             "severity": "high",
@@ -128,9 +135,9 @@ class MedicalReasoningAgent:
                         "message": f"Claims '{spec}' but only {int(capacity)} beds (need {min_beds}+)",
                     })
 
-                # Check required capabilities
+                # Check required capabilities (fuzzy matching)
                 for req_cap in reqs.get("required_capability", []):
-                    if req_cap.lower() not in all_text:
+                    if not self._fuzzy_text_match(req_cap, all_text):
                         issues.append({
                             "type": "missing_capability",
                             "severity": "medium",
@@ -191,6 +198,38 @@ class MedicalReasoningAgent:
         }
         return specialty in mapping.get(procedure_key, [])
 
+    @staticmethod
+    def _fuzzy_text_match(needle: str, haystack: str, threshold: int = 75) -> bool:
+        """
+        Check if `needle` is mentioned in `haystack` using fuzzy matching.
+        Uses rapidfuzz token_set_ratio (handles reordering, partial matches,
+        abbreviations like "CT" vs "CT scanner").
+        Falls back to simple substring matching if rapidfuzz is unavailable.
+        """
+        needle_lower = needle.lower()
+        haystack_lower = haystack.lower()
+
+        # Fast exact check first
+        if needle_lower in haystack_lower:
+            return True
+
+        if not _RAPIDFUZZ_AVAILABLE:
+            return False
+
+        # Slide a window roughly the size of the needle over the haystack
+        # and check fuzzy similarity against each window
+        needle_words = needle_lower.split()
+        hay_words = haystack_lower.split()
+        window_size = max(len(needle_words), 3)
+
+        for i in range(max(1, len(hay_words) - window_size + 1)):
+            window = " ".join(hay_words[i : i + window_size])
+            score = _fuzz.token_set_ratio(needle_lower, window)
+            if score >= threshold:
+                return True
+
+        return False
+
     def validate_all_facilities(self) -> Dict:
         """Run constraint validation on all facilities."""
         results = []
@@ -232,15 +271,16 @@ class MedicalReasoningAgent:
 
     def detect_anomalies(self) -> Dict:
         """
-        Use Isolation Forest to detect statistical anomalies in facility data.
-        Features: num_specialties, num_procedures, num_equipment, capacity, doctors.
+        Two-stage anomaly detection:
+          Stage 1 — Isolation Forest (contamination='auto', median-imputed)
+          Stage 2 — Mahalanobis distance validation (removes false positives)
         """
         feature_cols = ["num_specialties", "num_procedures", "num_equipment", "num_capabilities"]
         df = self.flat_df.copy()
 
-        # Add capacity and doctor features where available
-        df["capacity_f"] = df["capacity"].fillna(0)
-        df["doctors_f"] = df["numberDoctors"].fillna(0)
+        # ── Median imputation instead of fillna(0) — avoids zero-bias ──
+        df["capacity_f"] = df["capacity"].fillna(df["capacity"].median())
+        df["doctors_f"] = df["numberDoctors"].fillna(df["numberDoctors"].median())
         feature_cols_full = feature_cols + ["capacity_f", "doctors_f"]
 
         X = df[feature_cols_full].values
@@ -249,17 +289,38 @@ class MedicalReasoningAgent:
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
-        # Fit Isolation Forest
+        # ── Stage 1: Isolation Forest with data-driven threshold ──
         iso_forest = IsolationForest(
-            n_estimators=100,
-            contamination=0.05,  # expect 5% anomalies
+            n_estimators=200,
+            contamination="auto",       # data-driven instead of fixed 5%
             random_state=42,
         )
         predictions = iso_forest.fit_predict(X_scaled)
-        scores = iso_forest.decision_function(X_scaled)
+        iso_scores = iso_forest.decision_function(X_scaled)
 
-        df["anomaly_label"] = predictions  # -1 = anomaly, 1 = normal
-        df["anomaly_score"] = scores  # more negative = more anomalous
+        # ── Stage 2: Mahalanobis distance validation ──
+        # Only keep IF outliers that are also Mahalanobis outliers (chi² p < 0.01)
+        cov = np.cov(X_scaled, rowvar=False)
+        try:
+            cov_inv = np.linalg.inv(cov + 1e-6 * np.eye(cov.shape[0]))
+        except np.linalg.LinAlgError:
+            cov_inv = np.linalg.pinv(cov)
+
+        mean_vec = X_scaled.mean(axis=0)
+        maha_dists = np.array([
+            mahalanobis(x, mean_vec, cov_inv) for x in X_scaled
+        ])
+
+        # Chi-squared critical value for p=0.01 with len(feature_cols_full) dof
+        from scipy.stats import chi2
+        chi2_threshold = chi2.ppf(0.99, df=len(feature_cols_full))
+        maha_outlier = maha_dists**2 > chi2_threshold
+
+        # Combined: must be flagged by BOTH stages
+        combined_outlier = (predictions == -1) & maha_outlier
+        df["anomaly_label"] = np.where(combined_outlier, -1, 1)
+        df["anomaly_score"] = iso_scores
+        df["mahalanobis_dist"] = maha_dists
 
         anomalies = df[df["anomaly_label"] == -1].sort_values("anomaly_score")
 
@@ -275,7 +336,7 @@ class MedicalReasoningAgent:
             if row["num_procedures"] > 15 and row["capacity_f"] < 20:
                 reasons.append("Many procedures claimed but very low capacity")
             if not reasons:
-                reasons.append("Statistical outlier in multi-feature space")
+                reasons.append("Statistical outlier confirmed by both Isolation Forest and Mahalanobis distance")
 
             results.append({
                 "facility": row["name"],
@@ -284,6 +345,7 @@ class MedicalReasoningAgent:
                 "latitude": row.get("latitude"),
                 "longitude": row.get("longitude"),
                 "anomaly_score": round(float(row["anomaly_score"]), 3),
+                "mahalanobis_distance": round(float(row["mahalanobis_dist"]), 2),
                 "num_specialties": int(row["num_specialties"]),
                 "num_procedures": int(row["num_procedures"]),
                 "num_equipment": int(row["num_equipment"]),
@@ -295,8 +357,9 @@ class MedicalReasoningAgent:
         citations = [
             {
                 "source": r["facility"],
-                "step": "isolation_forest_anomaly",
-                "score": r["anomaly_score"],
+                "step": "two_stage_anomaly_detection",
+                "iso_score": r["anomaly_score"],
+                "mahalanobis": r["mahalanobis_distance"],
                 "features": {
                     "specialties": r["num_specialties"],
                     "procedures": r["num_procedures"],
@@ -312,8 +375,10 @@ class MedicalReasoningAgent:
         return {
             "agent": "medical_reasoning",
             "action": "anomaly_detection",
-            "model": "IsolationForest",
+            "model": "IsolationForest + Mahalanobis (two-stage)",
             "total_checked": len(df),
+            "stage1_outliers": int((predictions == -1).sum()),
+            "stage2_confirmed": len(results),
             "anomalies_found": len(results),
             "results": results[:20],
             "citations": citations,

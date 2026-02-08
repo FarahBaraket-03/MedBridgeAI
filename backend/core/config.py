@@ -20,6 +20,12 @@ OUTPUT_DIR = PROJECT_ROOT / "output"
 QDRANT_CLOUD_URL = os.getenv("QDRANT_CLOUD_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
+# ── Databricks MLOps ─────────────────────────────────────────────────────────
+DATABRICKS_HOST = os.getenv("DATABRICKS_HOST")
+DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
+DATABRICKS_SERVING_ENDPOINT = os.getenv("DATABRICKS_SERVING_ENDPOINT", "medbridge-vector-search")
+VECTOR_SEARCH_BACKEND = os.getenv("VECTOR_SEARCH_BACKEND", "qdrant")  # "qdrant" or "databricks"
+
 # ── Groq Cloud LLM ───────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")

@@ -2,6 +2,9 @@
 // ResultsPanel — Cyberpunk-styled results display
 // ────────────────────────────────────────────────────────────────
 
+import { useState } from 'react'
+import renderMarkdown from '../utils/renderMarkdown'
+
 export default function ResultsPanel({ result }) {
   if (!result) return null
 
@@ -9,18 +12,29 @@ export default function ResultsPanel({ result }) {
 
   // Multi-agent response
   if (response?.multi_agent_response) {
+    const agentColors = {
+      genie: { color: 'var(--green)', icon: '◈' },
+      vector_search: { color: 'var(--purple)', icon: '⟐' },
+      medical_reasoning: { color: 'var(--pink)', icon: '✦' },
+      geospatial: { color: 'var(--yellow)', icon: '◉' },
+      planning: { color: 'var(--orange)', icon: '⬡' },
+    }
     return (
       <div className="space-y-4">
-        {Object.entries(response.results || {}).map(([agent, data]) => (
-          <div key={agent} className="glass-card p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="font-mono text-xs font-bold tracking-wider neon-text">
-                {agent.replace(/_/g, ' ').toUpperCase()}
-              </span>
+        {Object.entries(response.results || {}).map(([agent, data]) => {
+          const ac = agentColors[agent] || { color: 'var(--cyan)', icon: '▸' }
+          return (
+            <div key={agent} className="glass-card p-4" style={{ borderLeft: `3px solid ${ac.color}` }}>
+              <div className="flex items-center gap-2 mb-3">
+                <span style={{ fontSize: '0.9rem' }}>{ac.icon}</span>
+                <span className="font-mono text-xs font-bold tracking-wider" style={{ color: ac.color }}>
+                  {agent.replace(/_/g, ' ').toUpperCase()}
+                </span>
+              </div>
+              <AgentResult data={data} />
             </div>
-            <AgentResult data={data} />
-          </div>
-        ))}
+          )
+        })}
       </div>
     )
   }
@@ -59,20 +73,38 @@ function AgentResult({ data }) {
   if (action === 'anomaly_detection') {
     return (
       <div className="space-y-3">
-        <div className="flex gap-6">
+        <div className="flex gap-6 flex-wrap">
           <StatBlock value={data.anomalies_found} label="ANOMALIES" color="var(--yellow)" />
           <StatBlock value={data.total_checked} label="SCANNED" color="var(--cyan)" />
+          {data.stage1_outliers != null && (
+            <StatBlock value={data.stage1_outliers} label="STAGE-1 (IFOREST)" color="var(--purple)" />
+          )}
+          {data.stage2_confirmed != null && (
+            <StatBlock value={data.stage2_confirmed} label="STAGE-2 CONFIRMED" color="var(--pink)" />
+          )}
         </div>
+        {data.model && (
+          <div className="flex items-center gap-2">
+            <span className="cyber-badge cyber-badge-purple" style={{ fontSize: '0.6rem' }}>🧪 {data.model}</span>
+          </div>
+        )}
         {data.results?.map((r, i) => (
           <div key={i} className="rounded-lg p-3" style={{ background: 'var(--bg-surface)', borderLeft: '3px solid var(--yellow)' }}>
             <div className="flex justify-between items-start">
               <div>
                 <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{r.facility}</h4>
-                <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{r.city}</p>
+                <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{r.city}{r.region ? ` • ${r.region}` : ''}</p>
               </div>
-              <span className="cyber-badge cyber-badge-yellow">
-                Score: {r.anomaly_score}
-              </span>
+              <div className="flex gap-2 items-center">
+                <span className="cyber-badge cyber-badge-yellow">
+                  IF: {r.anomaly_score}
+                </span>
+                {r.mahalanobis_distance != null && (
+                  <span className="cyber-badge cyber-badge-purple">
+                    Maha: {r.mahalanobis_distance}
+                  </span>
+                )}
+              </div>
             </div>
             <ul className="mt-2 space-y-0.5">
               {r.reasons?.map((reason, j) => (
@@ -198,7 +230,7 @@ function AgentResult({ data }) {
         {data.results?.map((f, i) => (
           <div key={i} className="rounded-lg p-3" style={{ background: 'var(--bg-surface)', borderLeft: '3px solid var(--yellow)' }}>
             <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{f.facility}</h4>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{f.city} — {f.recommendation}</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{f.city} — {renderMarkdown(f.recommendation, { textColor: 'var(--text-muted)', boldColor: 'var(--text-primary)' })}</p>
             <div className="flex flex-wrap gap-1 mt-1">
               {f.flags?.map((fl, j) => (
                 <span key={j} className="cyber-badge cyber-badge-yellow">{fl.category}</span>
@@ -378,10 +410,13 @@ function PlanningResult({ data, action }) {
       {/* Specialist deployment — stops */}
       {action === 'specialist_deployment' && data.stops && (
         <div className="space-y-2">
-          <div className="flex gap-6">
+          <div className="flex gap-6 flex-wrap items-end">
             <StatBlock value={data.total_stops} label="STOPS" color="var(--cyan)" />
             <StatBlock value={`${data.total_distance_km?.toFixed(0)} km`} label="TOTAL DISTANCE" color="var(--green)" />
             <StatBlock value={`${data.est_total_days} days`} label="DURATION" color="var(--purple)" />
+            {data.optimisation && (
+              <span className="cyber-badge cyber-badge-purple mb-1" style={{ fontSize: '0.6rem' }}>🔄 {data.optimisation}</span>
+            )}
           </div>
           {data.stops.map((stop, i) => (
             <div key={i} className="flex items-center gap-3 py-2 px-3 rounded" style={{ background: 'var(--bg-surface)' }}>
@@ -416,19 +451,35 @@ function PlanningResult({ data, action }) {
         </div>
       )}
 
-      {/* New facility placement — suggestions */}
+      {/* New facility placement — suggestions (maximin) */}
       {action === 'new_facility_placement' && data.suggestions && (
         <div className="space-y-2">
-          <StatBlock value={data.total_suggestions} label="SUGGESTED LOCATIONS" color="var(--cyan)" />
+          <div className="flex gap-6 flex-wrap items-end">
+            <StatBlock value={data.total_suggestions} label="SUGGESTED LOCATIONS" color="var(--cyan)" />
+            {data.algorithm && (
+              <span className="cyber-badge cyber-badge-purple mb-1" style={{ fontSize: '0.6rem' }}>📐 {data.algorithm}</span>
+            )}
+          </div>
           {data.suggestions.map((s, i) => (
-            <div key={i} className="rounded-lg p-3" style={{ background: 'var(--bg-surface)', borderLeft: `3px solid ${s.priority === 'critical' ? 'var(--pink)' : 'var(--yellow)'}` }}>
+            <div key={i} className="rounded-lg p-3" style={{ background: 'var(--bg-surface)', borderLeft: `3px solid ${s.priority === 'critical' ? 'var(--pink)' : s.priority === 'high' ? 'var(--yellow)' : 'var(--green)'}` }}>
               <div className="flex justify-between items-center">
-                <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{s.region}</span>
-                <span className={`cyber-badge ${s.priority === 'critical' ? 'cyber-badge-pink' : 'cyber-badge-yellow'}`}>{s.priority}</span>
+                <div className="flex items-center gap-2">
+                  {s.rank && <span className="font-mono text-xs font-bold" style={{ color: 'var(--cyan)' }}>#{s.rank}</span>}
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{s.region}</span>
+                </div>
+                <span className={`cyber-badge ${s.priority === 'critical' ? 'cyber-badge-pink' : s.priority === 'high' ? 'cyber-badge-yellow' : 'cyber-badge-green'}`}>{s.priority}</span>
               </div>
-              <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                {s.current_facilities_with_specialty} facilities w/ specialty, {s.total_facilities_in_region} total
+              <div className="flex gap-4 mt-2 flex-wrap font-mono text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {s.nearest_existing_facility_km != null && (
+                  <span>Gap: <span className="neon-text">{s.nearest_existing_facility_km} km</span> to nearest</span>
+                )}
+                <span>{s.current_facilities_with_specialty} w/ specialty • {s.total_facilities_in_region} total</span>
               </div>
+              {s.suggested_lat != null && s.suggested_lng != null && (
+                <div className="text-xs font-mono mt-1" style={{ color: 'var(--text-muted)' }}>
+                  📍 ({s.suggested_lat.toFixed(4)}, {s.suggested_lng.toFixed(4)})
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -517,7 +568,14 @@ function ConfidenceBadge({ value }) {
 }
 
 function FacilityTable({ facilities }) {
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 20
+
   if (!facilities || facilities.length === 0) return null
+
+  const hasScore = facilities.some(f => f.rrf_score != null || f.score != null)
+  const totalPages = Math.ceil(facilities.length / PAGE_SIZE)
+  const pageItems = facilities.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   return (
     <div className="overflow-x-auto rounded-lg" style={{ background: 'var(--bg-surface)' }}>
@@ -529,10 +587,13 @@ function FacilityTable({ facilities }) {
             <th className="text-left py-2 px-3 font-mono text-[0.6rem] tracking-wider uppercase" style={{ color: 'var(--text-muted)' }}>Region</th>
             <th className="text-left py-2 px-3 font-mono text-[0.6rem] tracking-wider uppercase" style={{ color: 'var(--text-muted)' }}>Type</th>
             <th className="text-left py-2 px-3 font-mono text-[0.6rem] tracking-wider uppercase" style={{ color: 'var(--text-muted)' }}>Specialties</th>
+            {hasScore && (
+              <th className="text-right py-2 px-3 font-mono text-[0.6rem] tracking-wider uppercase" style={{ color: 'var(--text-muted)' }}>Relevance</th>
+            )}
           </tr>
         </thead>
         <tbody>
-          {facilities.slice(0, 20).map((f, i) => (
+          {pageItems.map((f, i) => (
             <tr key={i} style={{ borderBottom: '1px solid var(--border-dim)' }}
                 className="transition-colors"
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
@@ -555,20 +616,44 @@ function FacilityTable({ facilities }) {
                     <span key={j} className="cyber-badge cyber-badge-cyan">{s}</span>
                   ))}
                   {(f.specialties || []).length > 3 && (
-                    <span className="cyber-badge cyber-badge-purple">
+                    <span className="cyber-badge cyber-badge-purple" title={(f.specialties || []).slice(3).join(', ')}>
                       +{f.specialties.length - 3}
                     </span>
                   )}
                 </div>
               </td>
+              {hasScore && (
+                <td className="py-2 px-3 text-right font-mono" style={{ color: 'var(--cyan)' }}>
+                  {(f.rrf_score ?? f.score)?.toFixed(4) || '—'}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
       </table>
-      {facilities.length > 20 && (
-        <p className="text-xs py-2 px-3 font-mono" style={{ color: 'var(--text-muted)' }}>
-          Showing 20 of {facilities.length}
-        </p>
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between py-2 px-3" style={{ borderTop: '1px solid var(--border-dim)' }}>
+          <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, facilities.length)} of {facilities.length}
+          </span>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="cyber-badge cyber-badge-cyan cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              ◂ Prev
+            </button>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="cyber-badge cyber-badge-cyan cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Next ▸
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

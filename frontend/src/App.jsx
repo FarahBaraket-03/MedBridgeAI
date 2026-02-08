@@ -7,7 +7,9 @@ import ResultsPanel from './components/ResultsPanel'
 import MapView from './components/MapView'
 import PlanningPanel from './components/PlanningPanel'
 import ExplainPanel from './components/ExplainPanel'
+import MLOpsDashboard from './components/MLOpsDashboard'
 import { queryApi, fetchStats, fetchFacilities } from './api/client'
+import renderMarkdown from './utils/renderMarkdown'
 
 const EXAMPLE_QUERIES = [
   "Where are the medical deserts in Ghana?",
@@ -61,6 +63,7 @@ export default function App() {
   const mapFacilities = extractMapFacilities(result, facilities)
   const routeData = extractRouteData(result)
   const { deserts: medicalDeserts, coldSpots } = extractDesertData(result)
+  const placementSuggestions = extractPlacementSuggestions(result)
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-deep)' }}>
@@ -116,7 +119,13 @@ export default function App() {
                 className="glass-card neon-border-pink p-4 flex items-center gap-3"
               >
                 <span style={{ color: 'var(--pink)' }}>⚠</span>
-                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>{error}</span>
+                <span className="text-sm flex-1" style={{ color: 'var(--text-primary)' }}>{error}</span>
+                <button
+                  onClick={() => { setError(null); if (result?.query) handleQuery(result.query) }}
+                  className="cyber-badge cyber-badge-cyan cursor-pointer hover:opacity-80 transition-opacity"
+                >
+                  ↻ Retry
+                </button>
               </div>
             )}
 
@@ -144,17 +153,24 @@ export default function App() {
                   <span className="font-mono text-[0.6rem] ml-auto" style={{ color: 'var(--text-muted)' }}>
                     {result.total_duration_ms?.toFixed(0)}ms
                   </span>
+                  <button
+                    onClick={() => exportResultsCSV(result)}
+                    className="cyber-badge cyber-badge-green cursor-pointer hover:opacity-80 transition-opacity"
+                    title="Export results as CSV"
+                  >
+                    ⬇ CSV
+                  </button>
                 </div>
 
                 {/* Tabs */}
                 <div className="flex gap-0 rounded-lg overflow-hidden" style={{ border: '1px solid var(--border-dim)' }}>
-                  {['results', 'explain', 'trace', 'map'].map(tab => (
+                  {['results', 'explain', 'trace', 'map', 'mlops'].map(tab => (
                     <button
                       key={tab}
                       className={`cyber-tab flex-1 ${activeTab === tab ? 'active' : ''}`}
                       onClick={() => setActiveTab(tab)}
                     >
-                      {tab === 'results' ? '◈ Results' : tab === 'explain' ? '📋 Explain' : tab === 'trace' ? '⟐ Trace' : '◎ Map'}
+                      {tab === 'results' ? '◈ Results' : tab === 'explain' ? '📋 Explain' : tab === 'trace' ? '⟐ Trace' : tab === 'map' ? '◎ Map' : '⚙ MLOps'}
                     </button>
                   ))}
                 </div>
@@ -180,12 +196,12 @@ export default function App() {
                         Groq LLM
                       </span>
                     </div>
-                    <p
+                    <div
                       className="text-sm leading-relaxed"
-                      style={{ color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}
+                      style={{ color: 'var(--text-primary)' }}
                     >
-                      {result.summary}
-                    </p>
+                      {renderMarkdown(result.summary, { textColor: 'var(--text-secondary)', boldColor: 'var(--text-primary)' })}
+                    </div>
                   </div>
                 )}
 
@@ -193,15 +209,16 @@ export default function App() {
                 {activeTab === 'explain' && <ExplainPanel result={result} />}
                 {activeTab === 'trace' && <ReasoningTrace trace={result.trace} />}
                 {activeTab === 'map' && (
-                  <div className="h-[500px] rounded-xl overflow-hidden neon-border">
-                    <MapView facilities={mapFacilities} routeData={routeData} medicalDeserts={medicalDeserts} coldSpots={coldSpots} />
+                  <div style={{ height: '550px' }} className="rounded-xl overflow-hidden neon-border">
+                    <MapView facilities={mapFacilities} routeData={routeData} medicalDeserts={medicalDeserts} coldSpots={coldSpots} placementSuggestions={placementSuggestions} />
                   </div>
                 )}
+                {activeTab === 'mlops' && <MLOpsDashboard />}
               </div>
             )}
 
             {/* Default Map when no result */}
-            {!result && !loading && facilities.length > 0 && (
+            {!result && !loading && facilities.length > 0 && activeTab !== 'mlops' && (
               <div className="glass-card p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <span className="font-mono text-[0.6rem] tracking-[0.15em] uppercase font-semibold" style={{ color: 'var(--text-muted)' }}>
@@ -209,9 +226,24 @@ export default function App() {
                   </span>
                   <span className="cyber-badge cyber-badge-cyan">{facilities.length} mapped</span>
                 </div>
-                <div className="h-[450px] rounded-xl overflow-hidden neon-border">
+                <div style={{ height: '500px' }} className="rounded-xl overflow-hidden neon-border">
                   <MapView facilities={facilities} />
                 </div>
+              </div>
+            )}
+
+            {/* MLOps dashboard accessible even without a query */}
+            {!result && !loading && activeTab === 'mlops' && <MLOpsDashboard />}
+
+            {/* Quick-access MLOps tab button when idle */}
+            {!result && !loading && activeTab !== 'mlops' && (
+              <div className="flex justify-center">
+                <button
+                  onClick={() => setActiveTab('mlops')}
+                  className="cyber-badge cyber-badge-purple cursor-pointer hover:opacity-80 transition-opacity"
+                >
+                  ⚙ Open MLOps Dashboard
+                </button>
               </div>
             )}
           </div>
@@ -223,7 +255,7 @@ export default function App() {
         className="py-3 px-6 text-center"
         style={{ background: 'var(--bg-main)', borderTop: '1px solid var(--border-dim)' }}
       >
-        <p className="font-mono text-[0.6rem] tracking-[0.1em] uppercase" style={{ color: 'var(--text-muted)' }}>
+        <p className="font-mono text-[0.6rem] tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>
           VIRTUE AI v2.0 — Virtue Foundation × Databricks × AI Tinkerers Hackathon
         </p>
       </footer>
@@ -388,4 +420,92 @@ function extractDesertData(result) {
   scan(resp)
 
   return { deserts, coldSpots }
+}
+
+function extractPlacementSuggestions(result) {
+  const resp = result?.response
+  if (!resp) return []
+
+  const extract = (data) => {
+    if (!data || typeof data !== 'object') return []
+    if ((data.action === 'new_facility_placement' || data.scenario === 'new_facility_placement') && Array.isArray(data.suggestions)) {
+      return data.suggestions.filter(s => (s.suggested_lat ?? s.latitude) != null && (s.suggested_lng ?? s.longitude) != null)
+    }
+    return []
+  }
+
+  // Multi-agent
+  if (resp.multi_agent_response && resp.results) {
+    for (const agentData of Object.values(resp.results)) {
+      const found = extract(agentData)
+      if (found.length > 0) return found
+    }
+  }
+
+  return extract(resp)
+}
+
+function exportResultsCSV(result) {
+  if (!result?.response) return
+
+  const resp = result.response
+  let rows = []
+  let headers = []
+
+  // Collect facility-like data from the response
+  const collectRows = (data) => {
+    if (!data || typeof data !== 'object') return
+
+    // Try known list keys
+    for (const key of ['facilities', 'results', 'flagged_facilities', 'stops',
+      'placements', 'suggestions', 'worst_cold_spots', 'anomalies', 'regions', 'deserts']) {
+      const items = Array.isArray(data[key]) ? data[key] : []
+      if (items.length > 0 && typeof items[0] === 'object') {
+        rows = items
+        return
+      }
+    }
+  }
+
+  if (resp.multi_agent_response && resp.results) {
+    for (const agentData of Object.values(resp.results)) {
+      collectRows(agentData)
+      if (rows.length > 0) break
+    }
+  } else {
+    collectRows(resp)
+  }
+
+  if (rows.length === 0) {
+    // Fallback: export the summary as a single-row CSV
+    rows = [{ query: result.query, intent: result.intent, summary: result.summary }]
+  }
+
+  // Build headers from all keys across all rows
+  const keySet = new Set()
+  rows.forEach(r => Object.keys(r).forEach(k => {
+    if (typeof r[k] !== 'object' || r[k] === null) keySet.add(k)
+    else if (Array.isArray(r[k])) keySet.add(k)
+  }))
+  headers = [...keySet]
+
+  const escape = (val) => {
+    if (val == null) return ''
+    const str = Array.isArray(val) ? val.join('; ') : String(val)
+    return str.includes(',') || str.includes('"') || str.includes('\n')
+      ? `"${str.replace(/"/g, '""')}"` : str
+  }
+
+  const csv = [
+    headers.join(','),
+    ...rows.map(r => headers.map(h => escape(r[h])).join(','))
+  ].join('\n')
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `medbridge_${result.intent || 'results'}_${Date.now()}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }

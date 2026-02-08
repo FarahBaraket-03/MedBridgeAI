@@ -355,26 +355,68 @@ GHANA_REGION_COORDS = {
 }
 
 
+def _normalize_place_name(name: str) -> str:
+    """Normalize a place name for robust lookup (hyphens, abbreviations, whitespace)."""
+    import re as _re
+    n = name.strip().lower()
+    n = _re.sub(r'[\s\-]+', ' ', n)          # collapse whitespace & hyphens
+    n = n.replace('gt.', 'greater').replace('st.', 'saint')
+    return n
+
+
 def geocode_facility(city: str, region: str = None) -> tuple:
     """
     Return (latitude, longitude) for a facility based on city/region.
     Returns (None, None) if no match found.
+
+    Uses a three-stage lookup:
+      1. Exact match (city, then region)
+      2. Word-boundary partial match — only accepts matches where the input
+         appears as a whole word inside the key, sorted by key length so
+         shorter (more specific) keys are preferred.  Avoids the old bug
+         where "wa" matched "nkawkaw".
+      3. Fuzzy Levenshtein fallback (>= 85 similarity) via rapidfuzz if
+         available, catching common misspellings like Kumase -> Kumasi.
     """
+    import re as _re
+
+    # --- Stage 1: exact match -------------------------------------------------
     if city:
-        city_lower = city.strip().lower()
+        city_lower = _normalize_place_name(city)
         if city_lower in GHANA_CITY_COORDS:
             return GHANA_CITY_COORDS[city_lower]
 
     if region:
-        region_lower = region.strip().lower()
+        region_lower = _normalize_place_name(region)
         if region_lower in GHANA_REGION_COORDS:
             return GHANA_REGION_COORDS[region_lower]
-
-    # Last resort: try partial match on city
-    if city:
-        city_lower = city.strip().lower()
-        for key, coords in GHANA_CITY_COORDS.items():
-            if city_lower in key or key in city_lower:
+        # Try matching with normalized keys
+        for key, coords in GHANA_REGION_COORDS.items():
+            if _normalize_place_name(key) == region_lower:
                 return coords
+
+    # --- Stage 2: word-boundary partial match (safe) --------------------------
+    if city:
+        city_lower = _normalize_place_name(city)
+        # Sort candidates by key length (shorter = more specific match)
+        candidates = sorted(GHANA_CITY_COORDS.items(), key=lambda x: len(x[0]))
+        for key, coords in candidates:
+            # Only accept if the query appears as a whole word in the key
+            if _re.search(r'\b' + _re.escape(city_lower) + r'\b', key):
+                return coords
+
+    # --- Stage 3: fuzzy Levenshtein fallback -----------------------------------
+    if city:
+        try:
+            from rapidfuzz import process as rfp
+            match = rfp.extractOne(
+                _normalize_place_name(city),
+                GHANA_CITY_COORDS.keys(),
+                score_cutoff=80,
+            )
+            if match:
+                return GHANA_CITY_COORDS[match[0]]
+        except ImportError:
+            pass  # rapidfuzz not installed — skip fuzzy matching
 
     return None, None

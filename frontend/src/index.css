@@ -342,6 +342,12 @@
   50%      { box-shadow: 0 0 15px var(--cyan-glow), 0 0 30px rgba(0, 243, 255, 0.1); }
 }
 
+/* Alias used by MLOpsDashboard StatusDot */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 5px var(--green); opacity: 1; }
+  50%      { box-shadow: 0 0 15px var(--green), 0 0 30px rgba(6, 255, 165, 0.3); opacity: 0.7; }
+}
+
 /* ── Map legend ───────────────────────────────────────────────── */
 .map-legend {
   position: absolute;

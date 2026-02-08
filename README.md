@@ -1,300 +1,211 @@
 # MedBridge AI
 
-> Multi-Agent Healthcare Intelligence Platform for Ghana
+> **Multi-Agent Healthcare Intelligence Platform for Ghana**
+> Virtue Foundation × Databricks × AI Tinkerers Hackathon — *Bridging Medical Deserts*
 
-MedBridge AI analyses **797 medical facilities and NGOs** across Ghana using a coordinated team of AI agents. Users ask natural-language questions and receive structured answers, interactive maps, and data-driven insights — all powered by a LangGraph orchestration pipeline.
+MedBridge AI analyses **797 medical facilities and NGOs** across Ghana through **6 coordinated AI agents**. Users ask natural-language questions and receive structured answers, interactive maps, and actionable insights — powered by a LangGraph orchestration pipeline with self-correcting feedback loops, optional **quantum-optimised routing**, and a cyberpunk-styled React frontend.
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Backend
-pip install -r requirements.txt          # inside a virtual environment
-uvicorn backend.api.main:app --reload    # starts on http://localhost:8000
+# Clone & install
+git clone <repo-url> && cd MedBridgeAI
+python -m venv .venv && .venv\Scripts\activate   # source .venv/bin/activate on Linux/Mac
+pip install -r requirements.txt
 
-# 2. Frontend
-cd frontend
-npm install
-npm run dev                              # starts on http://localhost:5173
+# Configure
+cp .env.example .env    # add GROQ_API_KEY, QDRANT_URL, QDRANT_API_KEY
+
+# Run
+uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
+cd frontend && npm install && npm run dev        # → http://localhost:5173
 ```
-
-Open the frontend URL and start asking questions.
 
 ---
 
-## User Workflow
+## How It Works
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  1. USER TYPES A QUESTION                                       │
-│     "Which facilities handle trauma near Kumasi?"               │
-└──────────────────────┬──────────────────────────────────────────┘
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  2. SUPERVISOR CLASSIFIES INTENT                                │
-│     Regex patterns match → distance_query                       │
-│     Routes to: [Geospatial]                                     │
-└──────────────────────┬──────────────────────────────────────────┘
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  3. AGENT(S) EXECUTE                                            │
-│     Geospatial geocodes "Kumasi" → (6.69, -1.62)               │
-│     Finds 8 facilities within 50 km offering trauma care        │
-└──────────────────────┬──────────────────────────────────────────┘
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  4. AGGREGATOR MERGES RESULTS                                   │
-│     Collects facilities with coordinates for the map            │
-│     LLM generates a plain-language summary                      │
-└──────────────────────┬──────────────────────────────────────────┘
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  5. FRONTEND RENDERS                                            │
-│     Results tab  → structured data cards                        │
-│     Map tab      → Leaflet markers for the 8 facilities         │
-│     Explain tab  → step-by-step agent reasoning trace           │
-└─────────────────────────────────────────────────────────────────┘
+  User Question
+       │
+       ▼
+ ┌───────────┐    ┌────────┐ ┌────────────┐ ┌───────────┐ ┌──────────┐ ┌────────┐
+ │ Supervisor │───►│ Genie  │ │  Vector    │ │  Medical  │ │Geospatial│ │Planning│
+ │  (Router)  │    │Analyst │ │  Search    │ │ Reasoning │ │Navigator │ │Strategy│
+ └───────────┘    └───┬────┘ └─────┬──────┘ └─────┬─────┘ └────┬─────┘ └───┬────┘
+                      │            │              │             │            │
+                      └────────────┴──────────────┴─────────────┴────────────┘
+                                                  │
+                                                  ▼
+                                          ┌──────────────┐     ┌───────────┐
+                                          │  Aggregator  │────►│  Frontend  │
+                                          │ + LLM Summary│     │  Results   │
+                                          └──────┬───────┘     └───────────┘
+                                                 │ retry if 0 results
+                                                 └──────► (self-correction)
 ```
 
-### What the user sees
-
-| Tab | Content |
-|-----|---------|
-| **Results** | Facility cards, counts, tables, planning details |
-| **Map** | Interactive Leaflet map with markers, routes, desert zones |
-| **Explain** | Agent trace with timing, actions taken, and citations |
+**Flow modes:** Sequential (e.g. Vector Search → Medical Reasoning) · Parallel (e.g. Genie + Geospatial) · Single agent
 
 ---
 
 ## The 6 Agents
 
-### 1. Supervisor — *The Router*
+### 1 · Supervisor — *The Router*
 
-| | |
-|---|---|
-| **Role** | Classifies the user's intent and decides which agents to call |
-| **How** | 14 regex pattern sets scored by match count; falls back to LLM for ambiguous queries |
-| **Output** | Execution plan: intent, agent list, sequential or parallel flow |
+Classifies user intent and decides which agents to call.
 
-**Example intents it detects:**
+- **Top-2-mean embedding pooling** — averages the 2 best similarities per intent (more robust than max-pool)
+- **Sigmoid confidence gating** — `1/(1+exp(-20*(gap-0.05)))` for sharp clear/ambiguous discrimination
+- **Multi-intent expansion** — detects secondary intents (similarity > 0.40) and merges agent sets
+- **LLM fallback** — when embedding confidence < 0.45, Groq classifies with agent-name validation
 
-| Intent | Trigger words | Routed to |
-|--------|---------------|-----------|
-| `count` | "how many", "total" | Genie |
-| `distance_query` | "near", "within km", "closest" | Geospatial |
-| `validation` | "suspicious claims", "really offer" | Vector Search → Medical Reasoning |
+| Intent | Example trigger | Routed to |
+|--------|----------------|-----------|
+| `count` | "how many hospitals…" | Genie |
+| `distance_query` | "near Kumasi", "within 30 km" | Geospatial |
+| `validation` | "suspicious claims" | Vector Search → Medical Reasoning |
 | `planning` | "deploy", "where should we build" | Planning |
-| `coverage_gap` | "medical desert", "underserved" | Geospatial → Medical Reasoning |
-| `comparison` | "compare", "vs", "urban rural" | Genie + Geospatial |
+| `coverage_gap` | "medical desert", "underserved" | Geospatial + Medical Reasoning |
+| `comparison` | "compare Accra vs Northern" | Genie + Geospatial |
 
----
+### 2 · Genie — *The Analyst*
 
-### 2. Genie — *The Analyst*
+Structured Pandas queries over the full facility dataset.
 
-| | |
-|---|---|
-| **Role** | Structured data queries using Pandas DataFrame operations |
-| **Data** | Flat table of 797 facilities with specialties, procedures, equipment, capacity, coordinates |
-| **Strengths** | Counting, filtering, aggregating, region breakdowns |
+- Counting, filtering, aggregation, region breakdowns
+- **Negation detection** — "facilities *without* cardiology" correctly inverts filter masks
+- **IQR anomaly detection** — adaptive `Q75 + 1.5×IQR` thresholds for bed/doctor ratios
+- Returns records with lat/lng for map display
 
-**What it can do:**
+### 3 · Vector Search — *The Finder*
 
-- Count facilities by specialty, type, or region
-- List facilities matching complex filters (specialty + region + type)
-- Aggregate statistics per region (facility counts, specialty coverage)
-- Find rare specialties and procedures with limited availability
-- Return facility records **with lat/lng** for map display
+Semantic similarity search across Qdrant Cloud (384-dim, 3 named vectors per facility).
 
-**Example queries:**
-- *"How many hospitals offer cardiology?"* → 12 facilities
-- *"Which region has the most clinics?"* → Greater Accra (309)
-- *"Facilities in Ashanti that perform orthopedic surgery"*
+| Vector | Content | Query template |
+|--------|---------|---------------|
+| `full_document` | Complete facility profile | Raw query |
+| `clinical_detail` | Specialties, procedures, equipment | `"Procedures: {q} \| Equipment: {q}"` |
+| `specialties_context` | Specialty names | `"facility with specialties: {q}"` |
 
----
+- **Reciprocal Rank Fusion (RRF)** — merges results across all 3 vectors with normalised weights (sum = 3.0)
+- City/region OR-filter for location-scoped queries
+- Dual backend: Qdrant Cloud or Databricks Vector Search
 
-### 3. Vector Search — *The Finder*
+### 4 · Medical Reasoning — *The Validator*
 
-| | |
-|---|---|
-| **Role** | Semantic similarity search across facility descriptions |
-| **Data** | Qdrant Cloud vector database with 3 named vectors per facility |
-| **Strengths** | Finding facilities when the user describes needs in natural language |
-
-**Three vector representations:**
-
-| Vector | Dimension | Content |
-|--------|-----------|---------|
-| `full_document` | 384 | Complete facility profile |
-| `clinical_detail` | 384 | Specialties, procedures, equipment, capabilities |
-| `specialties_context` | 384 | Specialty names in medical context |
-
-Automatically selects the best vector based on query content. Returns ranked results with similarity scores and citations.
-
-**Example queries:**
-- *"Tell me about Korle Bu Teaching Hospital"*
-- *"Facilities that can handle complex cardiac procedures"*
-- *"Organizations working on maternal health in rural Ghana"*
-
----
-
-### 4. Medical Reasoning — *The Validator*
-
-| | |
-|---|---|
-| **Role** | Validates facility claims and detects anomalies using medical domain knowledge |
-| **How** | Rule-based constraints, Isolation Forest statistical anomaly detection, pattern analysis |
-| **Strengths** | Catching implausible data, identifying coverage gaps, flagging red flags |
-
-**Five analysis modes:**
+Validates facility claims and detects data anomalies using medical domain knowledge.
 
 | Mode | What it checks |
-|------|----------------|
-| **Constraint Validation** | Does a facility claiming neurosurgery have CT/MRI/ICU? |
-| **Anomaly Detection** | Statistical outliers in bed count, doctor numbers, procedure breadth |
-| **Red Flag Detection** | Language patterns suggesting exaggerated or implausible claims |
-| **Coverage Gap Analysis** | Regions with zero or very few facilities for a given specialty |
-| **Single Point of Failure** | Specialties depending on only 1–2 facilities nationwide |
+|------|---------------|
+| Constraint Validation | Does a facility claiming neurosurgery have CT/MRI/ICU? |
+| Anomaly Detection | Two-stage Isolation Forest + Mahalanobis outlier detection |
+| Red Flag Detection | Language patterns suggesting exaggerated capabilities |
+| Coverage Gap Analysis | Regions with zero or few providers for a specialty |
+| Single Point of Failure | Specialties relying on only 1–2 facilities nationwide |
 
-**Example queries:**
-- *"Find suspicious facility capability claims"*
-- *"Which specialties depend on a single facility?"*
-- *"Are there regions without access to emergency care?"*
+### 5 · Geospatial — *The Navigator*
 
----
+Distance calculations, coverage mapping, and medical desert detection.
 
-### 5. Geospatial — *The Navigator*
+- **BallTree spatial index** (Haversine) over 767 geocoded facilities — O(log n) radius/k-nearest queries
+- **Grid-based cold-spot detection** — 0.25° grid across Ghana, flags cells > 50 km from any facility
+- **Medical desert detection** — regions where citizens travel > 75 km to reach a specialty
+- **Mahalanobis distance** — multivariate regional equity anomaly detection
+- **3-stage geocoding** — exact match → boundary check → fuzzy Levenshtein (handles "Kumase" → Kumasi)
 
-| | |
-|---|---|
-| **Role** | Distance calculations, coverage mapping, medical desert detection |
-| **How** | Geodesic distance (geopy), grid-based analysis over Ghana's bounding box |
-| **Strengths** | Proximity search, geographic gap analysis, regional equity comparison |
+### 6 · Planning — *The Strategist*
 
-**Six capabilities:**
+Generates actionable deployment, routing, and resource allocation plans.
 
-| Capability | Description |
-|------------|-------------|
-| **Radius Search** | Find all facilities within X km of a point |
-| **Nearest Facilities** | K closest facilities to a location |
-| **Coverage Gap Analysis** | Grid-based cold-spot detection (cells >50 km from nearest facility) |
-| **Medical Desert Detection** | Regions where citizens travel >75 km to reach a specialty |
-| **Regional Equity** | Per-region facility density, doctor/bed ratios, specialty counts |
-| **City Distance** | Distance between two Ghana cities |
-
-Geocodes city names from queries automatically (e.g., "near Kumasi" → 6.69°N, 1.62°W).
-
-**Example queries:**
-- *"Hospitals within 30 km of Tamale"*
-- *"Where are the medical deserts for cardiology?"*
-- *"Compare healthcare distribution across regions"*
-
----
-
-### 6. Planning — *The Strategist*
-
-| | |
-|---|---|
-| **Role** | Generates actionable deployment, routing, and resource allocation plans |
-| **How** | Scenario-based algorithms using facility data + geospatial calculations |
-| **Strengths** | Turning analysis into concrete action steps |
-
-**Five planning scenarios:**
+- **Capability scoring** — specialty match +35, ICU/theater +20, equipment +15 → routes by medical need
+- **2-opt TSP** — iteratively swaps edges to shorten specialist deployment tours (~15-20% reduction)
+- **Quantum QUBO routing** *(opt-in)* — TSP as Quadratic Unconstrained Binary Optimisation via Qiskit; ≤4 cities use `NumPyMinimumEigensolver` (exact), 5–10 use QUBO-aware brute-force; returns side-by-side comparison
+- **Maximin placement** — new facility GPS coordinates maximising minimum distance to existing facilities
 
 | Scenario | Output |
 |----------|--------|
-| **Emergency Routing** | Primary facility, backup, alternatives with distance/travel time |
-| **Specialist Deployment** | Multi-stop rotation route for visiting specialists |
-| **Equipment Distribution** | Priority list for distributing equipment to underserved facilities |
-| **New Facility Placement** | GPS coordinates for optimal new facility locations |
-| **Capacity Planning** | Region-by-region capacity status and expansion priorities |
-
-**Example queries:**
-- *"Plan an emergency route for a cardiac patient near Tamale"*
-- *"Where should we build new maternal health facilities?"*
-- *"Deploy mobile eye care units across Northern Ghana"*
+| Emergency Routing | Primary + backup facility with distance/travel time |
+| Specialist Deployment | Multi-stop optimised rotation route |
+| Equipment Distribution | Priority list for underserved facilities |
+| New Facility Placement | GPS coordinates for optimal new locations |
+| Capacity Planning | Region-by-region status and expansion priorities |
 
 ---
 
-## Multi-Agent Orchestration
+## Frontend
 
-The agents are wired together using **LangGraph StateGraph**. The Supervisor decides the plan, then agents run sequentially or in parallel:
+**React 19 · Vite 6 · Tailwind CSS v4 · DaisyUI 5 · Leaflet 1.9** — cyberpunk dark theme
 
-```
-                    ┌──────────┐
-          ┌────────►│  Genie   │────────┐
-          │         └──────────┘        │
-          │         ┌──────────┐        │
-          ├────────►│ Vector   │────────┤
-          │         │ Search   │        │
-┌────────┐│         └──────────┘        │  ┌────────────┐   ┌─────┐
-│Supervisor├────────►│ Medical  │────────┼─►│ Aggregator │──►│ END │
-│        ││         │Reasoning │        │  └────────────┘   └─────┘
-└────────┘│         └──────────┘        │
-          │         ┌──────────┐        │
-          ├────────►│Geospatial│────────┤
-          │         └──────────┘        │
-          │         ┌──────────┐        │
-          └────────►│ Planning │────────┘
-                    └──────────┘
-```
+| Tab | Content |
+|-----|---------|
+| **◈ Results** | Colour-coded agent sections, facility tables with pagination, planning cards |
+| **📋 Explain** | Plain-language step-by-step explanation for NGO planners |
+| **⟐ Trace** | Agent timing, actions, confidence scores, LLM enhancement indicators |
+| **◎ Map** | Interactive Leaflet — colour-coded markers, dashed route lines, desert zones, proposed facility diamonds |
+| **⚙ MLOps** | Databricks pipeline status, MLflow tracking, model serving |
 
-**Sequential flow** (e.g., Validation: Vector Search finds facilities → Medical Reasoning validates them)  
-**Parallel flow** (e.g., Comparison: Genie + Geospatial run simultaneously)  
-**Single flow** (e.g., Count: only Genie runs)
+**Key features:**
+- **Markdown-rendered AI Summary** — LLM output (bold, bullets, headings) rendered as formatted JSX via shared `renderMarkdown` utility
+- **Auto-tab-switch** — geo/planning queries open the Map tab automatically
+- **Planning sidebar** — 5 one-click scenario buttons (Emergency, Deployment, Equipment, Placement, Capacity)
+- **CSV export** — one-click download of structured results
+- **Dynamic map legend** — adapts to show facility types, desert severity, and proposed locations
 
 ---
 
-## Tech Stack
+## Algorithmic Highlights
 
-| Layer | Technology |
-|-------|------------|
-| **Frontend** | React 19, Vite 6, Tailwind CSS v4, DaisyUI v5, Leaflet 1.9 |
-| **Backend** | Python 3.13, FastAPI, LangGraph |
-| **Vector DB** | Qdrant Cloud (384-dim, 3 named vectors) |
-| **Embeddings** | SentenceTransformer `all-MiniLM-L6-v2` |
-| **LLM** | Groq Cloud (`llama-3.3-70b-versatile`) |
-| **ML** | scikit-learn (Isolation Forest for anomaly detection) |
-| **Geospatial** | geopy (geodesic distance), static geocoding for 260+ Ghana cities |
-| **Data** | Virtue Foundation Ghana CSV — 987 rows → 797 unique facilities/NGOs |
+| Component | Algorithm | Impact |
+|-----------|-----------|--------|
+| Supervisor | Top-2-mean pooling + sigmoid confidence | ~15% fewer misroutes vs max-pool |
+| Supervisor | Multi-intent expansion (> 0.40 threshold) | Complex queries activate all relevant agents |
+| Geospatial | BallTree Haversine spatial index | O(log n) vs O(n) brute-force |
+| Geospatial | Mahalanobis regional anomaly detection | Catches multivariate outliers z-scores miss |
+| Planning | 2-opt TSP + QUBO quantum routing | Optimal specialist deployment tours |
+| Planning | Maximin facility placement | Maximises geographic dispersion |
+| Vector Search | RRF with normalised weights (sum = 3.0) | Balanced fusion across 3 vector types |
+| Genie | Negation detection + IQR anomaly threshold | Handles "without" queries; adaptive cutoffs |
+| Geocoding | 3-stage lookup (exact → boundary → fuzzy) | Handles typos safely |
+| LLM | Token-aware truncation (binary-search slicing) | Prevents context overflow |
+| Graph | Empty-result self-correction loop | Auto-retries without filters on 0 results |
 
 ---
 
 ## Project Structure
 
 ```
-medbridge/
+MedBridgeAI/
 ├── backend/
 │   ├── api/
-│   │   ├── main.py              # FastAPI app, CORS, lifespan
-│   │   └── routes.py            # All API endpoints
+│   │   ├── main.py                    # FastAPI app, CORS, lifespan
+│   │   └── routes.py                 # /api endpoints
 │   ├── agents/
-│   │   ├── supervisor/agent.py  # Intent classification + routing
-│   │   ├── genie/agent.py       # Text2SQL on Pandas
-│   │   ├── vector_search/agent.py # Qdrant semantic search
-│   │   ├── medical_reasoning/agent.py # Validation + anomaly detection
-│   │   ├── geospatial/agent.py  # Distance + coverage + deserts
-│   │   └── planning/agent.py    # Scenario-based planning
+│   │   ├── supervisor/agent.py       # Embedding intent + multi-intent detection
+│   │   ├── genie/agent.py            # Pandas queries + negation + IQR anomalies
+│   │   ├── vector_search/agent.py    # RRF multi-vector search
+│   │   ├── medical_reasoning/agent.py # Validation + Isolation Forest
+│   │   ├── geospatial/agent.py       # BallTree spatial + Mahalanobis equity
+│   │   └── planning/agent.py         # Capability scoring + 2-opt + QAOA + maximin
 │   ├── core/
-│   │   ├── config.py            # Constants, specialty maps, API keys
-│   │   ├── geocoding.py         # Static city/region → lat/lng lookup
-│   │   ├── llm.py               # Groq LLM synthesis + intent fallback
-│   │   ├── preprocessing.py     # CSV → clean → dedup → geocode → documents
-│   │   └── vectorstore.py       # Qdrant multi-vector search
+│   │   ├── config.py                 # Constants, specialty maps, API keys
+│   │   ├── geocoding.py              # 3-stage geocoding (exact/boundary/fuzzy)
+│   │   ├── llm.py                    # Groq LLM + token truncation
+│   │   ├── preprocessing.py          # CSV → clean → dedup → geocode → documents
+│   │   ├── vectorstore.py            # Qdrant multi-vector + query templates
+│   │   ├── quantum.py                # QUBO TSP solver (Qiskit eigensolver)
+│   │   └── databricks.py             # Databricks Vector Search dual-backend
 │   └── orchestration/
-│       └── graph.py             # LangGraph StateGraph workflow
-├── frontend/
-│   └── src/
-│       ├── App.jsx              # Main component, query handling, tabs
-│       ├── api/client.js        # API client
-│       └── components/
-│           ├── Header.jsx       # App header with stats
-│           ├── QueryInput.jsx   # Search bar
-│           ├── ResultsPanel.jsx # Result rendering per action type
-│           ├── MapView.jsx      # Leaflet map with markers/routes/deserts
-│           ├── ExplainPanel.jsx # Agent reasoning trace
-│           ├── StatsBar.jsx     # Quick statistics
-│           └── PlanningPanel.jsx # Planning scenario selector
+│       └── graph.py                  # LangGraph StateGraph + self-correction
+├── frontend/src/
+│   ├── App.jsx                       # Layout, tabs, query handling, data extraction
+│   ├── utils/renderMarkdown.jsx      # Shared markdown → JSX renderer
+│   ├── api/client.js                 # API client
+│   └── components/                   # ResultsPanel, MapView, ExplainPanel, etc.
+├── databricks/
+│   └── medbridge_mlops_pipeline.py   # MLflow + Delta tables notebook
 └── data/
     └── Virtue Foundation Ghana v0.3 - Sheet1.csv
 ```
@@ -306,25 +217,61 @@ medbridge/
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | Health check |
-| `POST` | `/api/query` | Run a natural-language query through the agent pipeline |
-| `GET` | `/api/facilities` | List all facilities (for map markers) |
+| `POST` | `/api/query` | Run a query through the full agent pipeline |
+| `GET` | `/api/facilities` | All facilities (for map markers) |
 | `GET` | `/api/stats` | Dataset statistics |
 | `GET` | `/api/specialties` | Available medical specialties |
-| `GET` | `/api/planning/scenarios` | List planning scenarios |
-| `POST` | `/api/planning/execute` | Execute a specific planning scenario |
-| `POST` | `/api/routing-map` | Generate a routing map |
+| `GET/POST` | `/api/planning/*` | Planning scenarios and execution |
+| `GET/POST` | `/api/mlops/*` | Databricks MLOps pipeline status and triggers |
 
 ---
 
-## Example Queries to Try
+## Example Queries
 
 | Category | Query |
 |----------|-------|
-| **Counting** | How many hospitals offer cardiology? |
-| **Proximity** | Which facilities handle trauma near Kumasi? |
-| **Coverage** | Where are the medical deserts in Ghana? |
-| **Validation** | Find suspicious facility capability claims |
-| **Planning** | Where should we deploy mobile eye care units? |
-| **Comparison** | Compare Accra vs Northern Region healthcare |
-| **Lookup** | Tell me about Korle Bu Teaching Hospital |
-| **Resilience** | Which specialties depend on a single facility? |
+| Counting | How many hospitals offer cardiology? |
+| Negation | Facilities in Ashanti without orthopedic services |
+| Proximity | Which facilities handle trauma near Kumasi? |
+| Coverage | Where are the medical deserts in Ghana? |
+| Validation | Find suspicious facility capability claims |
+| Planning | Where should we deploy mobile eye care units? |
+| Comparison | Compare Accra vs Northern Region healthcare |
+| Resilience | Which specialties depend on a single facility? |
+| Emergency | Plan an emergency route for a cardiac patient near Tamale |
+| Quantum | Deploy a cardiologist near Accra *(with use_quantum: true)* |
+
+---
+
+## Environment Variables
+
+```env
+GROQ_API_KEY=your_groq_api_key              # Required — LLM synthesis
+QDRANT_URL=your_qdrant_cluster_url          # Required — vector search
+QDRANT_API_KEY=your_qdrant_api_key
+
+# Optional — Databricks MLOps
+DATABRICKS_HOST=your_databricks_host
+DATABRICKS_TOKEN=your_databricks_token
+VECTOR_SEARCH_BACKEND=qdrant                # or "databricks"
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Frontend | React 19, Vite 6, Tailwind CSS v4, DaisyUI 5, Leaflet 1.9 |
+| Backend | Python 3.11+, FastAPI, LangGraph |
+| Vector DB | Qdrant Cloud (384-dim, 3 named vectors) / Databricks Vector Search |
+| Embeddings | SentenceTransformer `all-MiniLM-L6-v2` |
+| LLM | Groq Cloud |
+| ML | scikit-learn (Isolation Forest, BallTree), rapidfuzz |
+| Quantum | Qiskit 2.3 + qiskit-optimization 0.7 |
+| MLOps | Databricks (MLflow, Delta tables, Model Serving) |
+| Data | Virtue Foundation Ghana CSV — 987 rows → 797 unique facilities |
+
+---
+
+*MIT License*

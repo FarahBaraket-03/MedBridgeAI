@@ -59,3 +59,15 @@ export async function healthCheck() {
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
 }
+
+export async function fetchMLOpsStatus() {
+  const res = await fetch(`${BASE}/mlops/status`);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
+export async function fetchMLOpsPipeline() {
+  const res = await fetch(`${BASE}/mlops/pipeline`);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
