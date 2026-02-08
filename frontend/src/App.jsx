@@ -6,7 +6,6 @@ import ReasoningTrace from './components/ReasoningTrace'
 import ResultsPanel from './components/ResultsPanel'
 import MapView from './components/MapView'
 import PlanningPanel from './components/PlanningPanel'
-import RoutingMap from './components/RoutingMap'
 import ExplainPanel from './components/ExplainPanel'
 import { queryApi, fetchStats, fetchFacilities } from './api/client'
 
@@ -29,7 +28,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState('results')
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [viewMode, setViewMode] = useState('dashboard') // 'dashboard' | 'routing-map'
+
 
   useEffect(() => {
     fetchStats().then(setStats).catch(console.error)
@@ -63,39 +62,10 @@ export default function App() {
   const routeData = extractRouteData(result)
   const { deserts: medicalDeserts, coldSpots } = extractDesertData(result)
 
-  // ── Full-screen Routing Map mode ─────────────────────────────────────
-  if (viewMode === 'routing-map') {
-    return (
-      <div className="flex flex-col" style={{ height: '100vh', background: 'var(--bg-deep)' }}>
-        <div className="grid-background"></div>
-        {/* Minimal top bar with back button */}
-        <div className="flex items-center gap-3 px-4 py-2" style={{
-          background: 'var(--bg-main)', borderBottom: '1px solid var(--border-dim)', zIndex: 10,
-        }}>
-          <button onClick={() => setViewMode('dashboard')}
-            className="font-mono" style={{
-              background: 'rgba(0,243,255,0.08)', border: '1px solid var(--border-med)',
-              color: 'var(--cyan)', padding: '6px 14px', borderRadius: 6,
-              cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem',
-              letterSpacing: '0.08em',
-            }}>◂ Dashboard</button>
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-bold" style={{ color: 'var(--cyan)' }}>⚕ VIRTUE AI</span>
-            <span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>— Routing & Reasoning Map</span>
-          </div>
-        </div>
-        <div style={{ flex: 1, position: 'relative' }}>
-          <RoutingMap />
-        </div>
-      </div>
-    )
-  }
-
-  // ── Dashboard mode ───────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-deep)' }}>
       <div className="grid-background"></div>
-      <Header onOpenRoutingMap={() => setViewMode('routing-map')} />
+      <Header />
 
       <main className="flex-1 flex overflow-hidden">
         {/* ── Left Sidebar: Planning Scenarios ───────────────── */}

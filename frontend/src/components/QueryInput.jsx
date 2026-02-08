@@ -11,11 +11,12 @@ export default function QueryInput({ onSubmit, loading, examples }) {
   return (
     <div className="glass-card p-4 space-y-3">
       <div className="flex items-center gap-2 mb-1">
+        <span style={{ color: 'var(--purple)', fontSize: '1rem' }}>🔍</span>
         <span
-          className="font-mono text-[0.6rem] tracking-[0.15em] uppercase font-semibold"
-          style={{ color: 'var(--text-muted)' }}
+          className="font-mono text-sm tracking-[0.1em]"
+          style={{ color: 'var(--cyan)' }}
         >
-          ▸ Ask About Healthcare in Ghana
+          Ask About Healthcare in Ghana
         </span>
       </div>
 
@@ -23,7 +24,7 @@ export default function QueryInput({ onSubmit, loading, examples }) {
         <input
           type="text"
           className="cyber-input flex-1"
-          placeholder="Ask anything — e.g. 'Where are the biggest gaps in maternal care?'"
+          placeholder="Ask me anything about healthcare facilities, specialties, equipment, or regional gaps..."
           value={query}
           onChange={e => setQuery(e.target.value)}
           disabled={loading}
