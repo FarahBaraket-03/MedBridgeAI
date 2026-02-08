@@ -19,7 +19,7 @@ export default function Header() {
           className="font-mono text-3xl font-extrabold tracking-[0.25em] leading-tight"
           style={{ color: 'var(--cyan)', textShadow: '0 0 14px rgba(0,243,255,0.4)' }}
         >
-          VIRTUE AI
+          MedBridge AI
         </h1>
       </div>
       <p

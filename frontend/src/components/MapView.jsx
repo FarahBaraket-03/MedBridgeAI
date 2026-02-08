@@ -167,12 +167,16 @@ export default function MapView({ facilities, routeData, medicalDeserts, coldSpo
         fillOpacity: 0.9,
       })
 
+      const stopLabel = isFirst && stop.city === 'Starting Point'
+        ? '🚨 ORIGIN'
+        : `STOP ${i + 1}`
+
       marker.bindPopup(`
         <div style="font-family:'Inter',sans-serif">
-          <div style="font-weight:700;color:#00f3ff;font-size:0.7rem">STOP ${i + 1}</div>
+          <div style="font-weight:700;color:${isFirst ? '#06ffa5' : '#00f3ff'};font-size:0.7rem">${stopLabel}</div>
           <div style="font-weight:600;color:#e8edf5">${stop.name || 'Unknown'}</div>
           <div style="font-size:0.75rem;color:#8892a8">${stop.city || ''}</div>
-          ${stop.distance_from_prev_km ? `<div style="color:#00f3ff;font-size:0.75rem;margin-top:4px">${stop.distance_from_prev_km.toFixed(1)} km from prev</div>` : ''}
+          ${stop.distance_from_prev_km ? `<div style="color:#00f3ff;font-size:0.75rem;margin-top:4px">${stop.distance_from_prev_km.toFixed(1)} km from origin</div>` : ''}
         </div>
       `)
 

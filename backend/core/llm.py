@@ -10,13 +10,41 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
+import mlflow
 from groq import Groq
 
 from backend.core.config import GROQ_API_KEY, GROQ_MODEL, GROQ_FALLBACK_MODEL
 
 logger = logging.getLogger(__name__)
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  MLFLOW TRACING SETUP
+# ═══════════════════════════════════════════════════════════════════════════
+
+_mlflow_configured = False
+
+
+def _ensure_mlflow():
+    """Configure MLflow tracking once (idempotent)."""
+    global _mlflow_configured
+    if _mlflow_configured:
+        return
+    try:
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+        experiment_id = os.getenv("MLFLOW_EXPERIMENT_ID")
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+        if experiment_id:
+            # Use experiment ID directly instead of name
+            os.environ.setdefault("MLFLOW_EXPERIMENT_ID", experiment_id)
+        _mlflow_configured = True
+        logger.info("MLflow tracing configured (uri=%s, experiment=%s)", tracking_uri, experiment_id)
+    except Exception as e:
+        logger.warning("MLflow setup failed (tracing disabled): %s", e)
+        _mlflow_configured = True  # Don't retry
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  GROQ CLIENT SINGLETON
@@ -37,18 +65,31 @@ def _call_groq(
     max_tokens: int = 1024,
     temperature: float = 0.3,
 ) -> str:
-    """Call Groq chat completion with automatic fallback."""
+    """Call Groq chat completion with automatic fallback. Traced by MLflow."""
+    _ensure_mlflow()
     client = _get_client()
 
     for model in [GROQ_MODEL, GROQ_FALLBACK_MODEL]:
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
-            return response.choices[0].message.content or ""
+            with mlflow.start_span(name=f"groq_llm_{model}") as span:
+                span.set_inputs({"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature})
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                content = response.choices[0].message.content or ""
+                span.set_outputs({"content": content[:500], "model_used": model})
+                # Log token usage if available
+                usage = getattr(response, "usage", None)
+                if usage:
+                    span.set_attributes({
+                        "prompt_tokens": usage.prompt_tokens,
+                        "completion_tokens": usage.completion_tokens,
+                        "total_tokens": usage.total_tokens,
+                    })
+                return content
         except Exception as e:
             logger.warning(f"Groq model {model} failed: {e}")
             if model == GROQ_FALLBACK_MODEL:

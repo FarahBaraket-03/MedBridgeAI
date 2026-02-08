@@ -171,16 +171,27 @@ export default function MLOpsDashboard() {
         <div className="flex items-center gap-2">
           <StatusDot status={servingHealth} />
           <span className="font-mono text-xs" style={{ color: 'var(--text-primary)' }}>
-            {serving.endpoint || 'Not configured'}
+            {serving.endpoint || serving.endpoint_name || (serving.status === 'not_deployed' ? 'medbridge-vector-search' : serving.status === 'not_configured' ? 'Ready to deploy' : 'Not configured')}
           </span>
           <span className="cyber-badge ml-auto text-[0.5rem]" style={{
             background: servingHealth === 'healthy' ? 'rgba(0,255,135,0.15)' : 'rgba(255,255,255,0.05)',
             color: STATUS_COLORS[servingHealth],
           }}>
-            {serving.status || 'N/A'}
+            {serving.status === 'not_deployed' ? 'Awaiting deployment' : serving.status === 'not_configured' ? 'Optional' : serving.status || 'N/A'}
           </span>
         </div>
-        {serving.error && (
+        {serving.status === 'not_deployed' && (
+          <div className="font-mono text-[0.6rem]" style={{ color: 'var(--text-muted)' }}>
+            Run the MLOps pipeline notebook on Databricks to deploy the serving endpoint.
+            The system uses Qdrant Cloud as the primary backend.
+          </div>
+        )}
+        {serving.status === 'not_configured' && (
+          <div className="font-mono text-[0.6rem]" style={{ color: 'var(--text-muted)' }}>
+            Databricks Model Serving is optional. Set DATABRICKS_SERVING_ENDPOINT in .env to enable.
+          </div>
+        )}
+        {serving.error && serving.status !== 'not_deployed' && serving.status !== 'not_configured' && (
           <div className="font-mono text-[0.6rem]" style={{ color: 'var(--pink)' }}>{serving.error}</div>
         )}
       </div>
@@ -228,9 +239,11 @@ export default function MLOpsDashboard() {
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <StatusDot status="unknown" />
+            <StatusDot status={status?.vector_search_backend === 'qdrant' ? 'healthy' : 'unknown'} />
             <span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
-              {mlflowRun.error || 'No runs recorded yet -- run the Databricks pipeline notebook to populate'}
+              {mlflowRun?.status === 'error'
+                ? 'MLflow connected — run the Databricks pipeline notebook to log experiment data'
+                : mlflowRun?.message || 'Run the Databricks pipeline notebook to log experiment data'}
             </span>
           </div>
         )}

@@ -256,7 +256,7 @@ export default function App() {
         style={{ background: 'var(--bg-main)', borderTop: '1px solid var(--border-dim)' }}
       >
         <p className="font-mono text-[0.6rem] tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>
-          VIRTUE AI v2.0 — Virtue Foundation × Databricks × AI Tinkerers Hackathon
+          MedBridge AI v2.0 — Virtue Foundation × Databricks × AI Tinkerers Hackathon
         </p>
       </footer>
     </div>
@@ -373,6 +373,10 @@ function extractRouteData(result) {
           .filter(s => s.latitude != null && s.longitude != null)
           .map(s => ({ lat: s.latitude, lng: s.longitude, name: s.facility || s.name, city: s.city }))
       }
+      // Build route from emergency routing (origin → primary → backup)
+      if (agentData.scenario === 'emergency_routing' && agentData.primary_facility) {
+        return buildEmergencyRoute(agentData)
+      }
     }
   }
 
@@ -383,7 +387,47 @@ function extractRouteData(result) {
       .filter(s => s.latitude != null && s.longitude != null)
       .map(s => ({ lat: s.latitude, lng: s.longitude, name: s.facility || s.name, city: s.city }))
   }
+  // Build route from emergency routing at top level
+  if (resp.scenario === 'emergency_routing' && resp.primary_facility) {
+    return buildEmergencyRoute(resp)
+  }
   return null
+}
+
+function buildEmergencyRoute(data) {
+  const points = []
+  // Starting point (patient origin)
+  if (data.origin?.lat != null && data.origin?.lng != null) {
+    points.push({
+      lat: data.origin.lat,
+      lng: data.origin.lng,
+      name: 'Patient Location',
+      city: 'Starting Point',
+    })
+  }
+  // Primary facility
+  const pf = data.primary_facility
+  if (pf?.latitude != null && pf?.longitude != null) {
+    points.push({
+      lat: pf.latitude,
+      lng: pf.longitude,
+      name: pf.facility,
+      city: pf.city,
+      distance_from_prev_km: pf.distance_km,
+    })
+  }
+  // Backup facility
+  const bf = data.backup_facility
+  if (bf?.latitude != null && bf?.longitude != null) {
+    points.push({
+      lat: bf.latitude,
+      lng: bf.longitude,
+      name: bf.facility,
+      city: bf.city,
+      distance_from_prev_km: bf.distance_km,
+    })
+  }
+  return points.length >= 2 ? points : null
 }
 
 function extractDesertData(result) {
@@ -400,12 +444,12 @@ function extractDesertData(result) {
     if (Array.isArray(obj.worst_cold_spots) && obj.worst_cold_spots.length) coldSpots = obj.worst_cold_spots
     // Also check for coverage gaps from medical reasoning
     if (Array.isArray(obj.gaps) && obj.gaps.length && deserts.length === 0) {
-      deserts = obj.gaps.filter(g => g.region).map(g => ({
+      deserts = obj.gaps.filter(g => g.region && (g.latitude != null || g.center_lat != null)).map(g => ({
         region: g.region,
-        severity: g.gap_severity || 'medium',
-        nearest_distance_km: 0,
-        center_lat: null,
-        center_lng: null,
+        severity: g.gap_severity === 'high' ? 'high' : g.gap_severity === 'critical' ? 'critical' : 'medium',
+        nearest_distance_km: g.nearest_distance_km || 0,
+        center_lat: g.center_lat ?? g.latitude,
+        center_lng: g.center_lng ?? g.longitude,
       }))
     }
   }

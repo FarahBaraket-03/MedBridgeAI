@@ -1,4 +1,4 @@
-# MedBridge AI
+# 💊 MedBridge AI
 
 > **Multi-Agent Healthcare Intelligence Platform for Ghana**
 > Virtue Foundation × Databricks × AI Tinkerers Hackathon — *Bridging Medical Deserts*

@@ -57,7 +57,7 @@ EMBEDDING_DIM = 384
 COLLECTION_NAME = "ghana_medical_facilities"
 
 # -- Delta table paths --
-CATALOG = "main"           # or your Unity Catalog name
+CATALOG = "hive_metastore"  # Change to your catalog (run: SHOW CATALOGS)
 SCHEMA  = "medbridge_ai"
 EMBEDDINGS_TABLE = f"{CATALOG}.{SCHEMA}.facility_embeddings"
 METADATA_TABLE   = f"{CATALOG}.{SCHEMA}.facility_metadata"
@@ -583,7 +583,7 @@ for i, row in predictions.iterrows():
 # MAGIC 1. **Data Migration**: Pulled all 797 facility records from Qdrant Cloud into Delta tables
 # MAGIC 2. **MLflow Tracking**: Logged model params, data quality metrics, embedding stats
 # MAGIC 3. **Model Registry**: Registered `medbridge-vector-search` in MLflow Model Registry
-# MAGIC 4. **Delta Lakehouse**: Embeddings + metadata stored in `main.medbridge_ai`
+# MAGIC 4. **Delta Lakehouse**: Embeddings + metadata stored in `hive_metastore.medbridge_ai`
 # MAGIC
 # MAGIC ### To serve as REST API:
 # MAGIC 1. Go to **Serving** in the Databricks sidebar

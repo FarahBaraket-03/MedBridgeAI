@@ -44,3 +44,5 @@ data/__MACOSX/
 *.log
 tmp/
 temp/
+./workflow_explnation/
+./qdrant_storage/

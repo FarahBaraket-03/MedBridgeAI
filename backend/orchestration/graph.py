@@ -17,6 +17,7 @@ import operator
 import time
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
+import mlflow
 from langgraph.graph import END, StateGraph
 
 from backend.agents.supervisor.agent import SupervisorAgent
@@ -520,7 +521,7 @@ _workflow = None
 
 
 def run_query(query: str, context: Optional[Dict] = None) -> Dict:
-    """Execute a query through the full LangGraph workflow."""
+    """Execute a query through the full LangGraph workflow. Traced by MLflow."""
     global _workflow
     if _workflow is None:
         _workflow = build_workflow()
@@ -539,5 +540,20 @@ def run_query(query: str, context: Optional[Dict] = None) -> Dict:
         "final_response": {},
     }
 
-    result = _workflow.invoke(initial_state)
-    return result.get("final_response", result)
+    try:
+        with mlflow.start_span(name="medbridge_query") as span:
+            span.set_inputs({"query": query, "context": context})
+            result = _workflow.invoke(initial_state)
+            final = result.get("final_response", result)
+            span.set_outputs({
+                "intent": final.get("intent", ""),
+                "agents_used": final.get("agents_used", []),
+                "total_duration_ms": final.get("total_duration_ms", 0),
+                "summary": (final.get("summary", "") or "")[:300],
+                "facility_count": len(final.get("response", {}).get("_map_facilities", [])) if isinstance(final.get("response"), dict) else 0,
+            })
+            return final
+    except Exception:
+        # If MLflow tracing fails, still run the query
+        result = _workflow.invoke(initial_state)
+        return result.get("final_response", result)
