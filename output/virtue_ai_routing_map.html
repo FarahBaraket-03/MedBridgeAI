@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Virtue AI - Intelligent Routing & Reasoning Map</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff0080;
+            --neon-purple: #9d00ff;
+            --dark-bg: #0a0e27;
+            --card-bg: #131829;
+            --text-primary: #e0e6ed;
+            --text-secondary: #8b92a8;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--dark-bg);
+            color: var(--text-primary);
+            overflow-x: hidden;
+        }
+        
+        .grid-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 243, 255, 0.03) 2px, transparent 2px),
+                linear-gradient(90deg, rgba(0, 243, 255, 0.03) 2px, transparent 2px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .container {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            height: 100vh;
+            gap: 0;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            background: var(--card-bg);
+            border-right: 1px solid rgba(0, 243, 255, 0.2);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar-header {
+            padding: 30px 20px;
+            background: linear-gradient(135deg, rgba(0, 243, 255, 0.1), rgba(157, 0, 255, 0.1));
+            border-bottom: 1px solid rgba(0, 243, 255, 0.2);
+        }
+        
+        .logo {
+            font-size: 1.8em;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        
+        .subtitle {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        /* Scenario Selector */
+        .scenario-section {
+            padding: 20px;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.1);
+        }
+        
+        .section-title {
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--neon-blue);
+            margin-bottom: 15px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .scenario-card {
+            background: rgba(0, 243, 255, 0.05);
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .scenario-card:hover {
+            background: rgba(0, 243, 255, 0.1);
+            border-color: var(--neon-blue);
+            transform: translateX(5px);
+        }
+        
+        .scenario-card.active {
+            background: linear-gradient(135deg, rgba(0, 243, 255, 0.15), rgba(157, 0, 255, 0.15));
+            border-color: var(--neon-blue);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
+        }
+        
+        .scenario-title {
+            font-weight: 600;
+            color: var(--neon-blue);
+            margin-bottom: 5px;
+            font-size: 0.95em;
+        }
+        
+        .scenario-desc {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        
+        /* Reasoning Steps */
+        .reasoning-section {
+            padding: 20px;
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .reasoning-step {
+            background: rgba(0, 243, 255, 0.05);
+            border-left: 3px solid var(--neon-blue);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .step-number {
+            display: inline-block;
+            background: var(--neon-blue);
+            color: var(--dark-bg);
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-weight: 700;
+            font-size: 0.85em;
+            margin-right: 10px;
+        }
+        
+        .step-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .step-content {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            padding-left: 38px;
+        }
+        
+        .step-data {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            color: var(--neon-purple);
+        }
+        
+        /* Map Container */
+        .map-container {
+            position: relative;
+            height: 100vh;
+        }
+        
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Map Controls */
+        .map-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .control-btn {
+            background: var(--card-bg);
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            color: var(--neon-blue);
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+        }
+        
+        .control-btn:hover {
+            background: rgba(0, 243, 255, 0.1);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.4);
+        }
+        
+        /* Legend */
+        .map-legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: var(--card-bg);
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            border-radius: 12px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+            max-width: 250px;
+        }
+        
+        .legend-title {
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: var(--neon-blue);
+            font-size: 0.9em;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            font-size: 0.85em;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        
+        /* Stats Bar */
+        .stats-bar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            display: flex;
+            gap: 15px;
+        }
+        
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            border-radius: 12px;
+            padding: 15px 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: var(--neon-blue);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .stat-label {
+            font-size: 0.75em;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 5px;
+        }
+        
+        /* Custom Leaflet Styles */
+        .leaflet-popup-content-wrapper {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            border-radius: 12px;
+        }
+        
+        .leaflet-popup-tip {
+            background: var(--card-bg);
+        }
+        
+        .facility-popup {
+            min-width: 250px;
+        }
+        
+        .facility-name {
+            font-weight: 700;
+            color: var(--neon-blue);
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+        
+        .facility-info {
+            font-size: 0.9em;
+            margin: 5px 0;
+            color: var(--text-secondary);
+        }
+        
+        .facility-badge {
+            display: inline-block;
+            background: rgba(0, 243, 255, 0.2);
+            color: var(--neon-blue);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin: 3px 3px 3px 0;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        /* Route Info Panel */
+        .route-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: var(--card-bg);
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            max-width: 350px;
+            display: none;
+        }
+        
+        .route-info.active {
+            display: block;
+            animation: slideUp 0.5s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .route-header {
+            font-weight: 700;
+            color: var(--neon-blue);
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .route-detail {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            font-size: 0.9em;
+        }
+        
+        .route-label {
+            color: var(--text-secondary);
+        }
+        
+        .route-value {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="grid-background"></div>
+    
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">⚕ VIRTUE AI</div>
+                <div class="subtitle">Intelligent Healthcare Routing</div>
+            </div>
+            
+            <div class="scenario-section">
+                <div class="section-title">🎯 Routing Scenarios</div>
+                
+                <div class="scenario-card active" onclick="loadScenario(0)">
+                    <div class="scenario-title">Emergency: Cardiac Patient</div>
+                    <div class="scenario-desc">Route patient from rural area to nearest cardiology facility with catheterization capability</div>
+                </div>
+                
+                <div class="scenario-card" onclick="loadScenario(1)">
+                    <div class="scenario-title">Trauma Transfer</div>
+                    <div class="scenario-desc">Multi-hop routing from clinic → district hospital → trauma center</div>
+                </div>
+                
+                <div class="scenario-card" onclick="loadScenario(2)">
+                    <div class="scenario-title">Specialist Rotation</div>
+                    <div class="scenario-desc">Optimize cardiologist route to cover 5 underserved facilities</div>
+                </div>
+                
+                <div class="scenario-card" onclick="loadScenario(3)">
+                    <div class="scenario-title">Medical Desert Analysis</div>
+                    <div class="scenario-desc">Identify gaps and suggest new facility locations</div>
+                </div>
+                
+                <div class="scenario-card" onclick="loadScenario(4)">
+                    <div class="scenario-title">Equipment Distribution</div>
+                    <div class="scenario-desc">Route mobile CT scanner to maximize coverage</div>
+                </div>
+            </div>
+            
+            <div class="reasoning-section" id="reasoningSteps">
+                <!-- Dynamic reasoning steps will be inserted here -->
+            </div>
+        </div>
+        
+        <!-- Map -->
+        <div class="map-container">
+            <div class="stats-bar">
+                <div class="stat-card">
+                    <div class="stat-value" id="distanceStat">87.3</div>
+                    <div class="stat-label">Distance (km)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="timeStat">64</div>
+                    <div class="stat-label">Est. Time (min)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="facilitiesStat">3</div>
+                    <div class="stat-label">Facilities</div>
+                </div>
+            </div>
+            
+            <div class="map-controls">
+                <button class="control-btn" onclick="toggleHeatmap()">🔥 Toggle Heatmap</button>
+                <button class="control-btn" onclick="showAllFacilities()">🏥 All Facilities</button>
+                <button class="control-btn" onclick="clearRoutes()">🗑️ Clear Routes</button>
+            </div>
+            
+            <div class="map-legend">
+                <div class="legend-title">Legend</div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff0080;"></div>
+                    <span>Trauma/Emergency</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00f3ff;"></div>
+                    <span>Cardiology</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #9d00ff;"></div>
+                    <span>General Hospital</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ffd700;"></div>
+                    <span>Clinic</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff4500;"></div>
+                    <span>Medical Desert</span>
+                </div>
+            </div>
+            
+            <div class="route-info" id="routeInfo">
+                <div class="route-header">🚑 Route Analysis</div>
+                <div class="route-detail">
+                    <span class="route-label">Origin:</span>
+                    <span class="route-value" id="routeOrigin">-</span>
+                </div>
+                <div class="route-detail">
+                    <span class="route-label">Destination:</span>
+                    <span class="route-value" id="routeDest">-</span>
+                </div>
+                <div class="route-detail">
+                    <span class="route-label">Distance:</span>
+                    <span class="route-value" id="routeDistance">-</span>
+                </div>
+                <div class="route-detail">
+                    <span class="route-label">Est. Time:</span>
+                    <span class="route-value" id="routeTime">-</span>
+                </div>
+                <div class="route-detail">
+                    <span class="route-label">Capability Match:</span>
+                    <span class="route-value" id="routeMatch">-</span>
+                </div>
+            </div>
+            
+            <div id="map"></div>
+        </div>
+    </div>
+    
+    <script>
+        let map;
+        let currentRoute;
+        let markers = [];
+        
+        // Real facility data from Ghana dataset
+        const facilities = [
+            // Greater Accra - Major hospitals
+            { name: "Korle Bu Teaching Hospital", lat: 5.5431, lng: -0.2273, type: "hospital", 
+              specialties: ["cardiology", "emergency", "trauma"], equipment: ["CT", "MRI", "Cath Lab"],
+              capacity: 2000, city: "Accra", region: "Greater Accra" },
+            { name: "Ridge Hospital", lat: 5.5600, lng: -0.1969, type: "hospital", 
+              specialties: ["emergency", "internal"], equipment: ["CT", "X-ray"],
+              capacity: 200, city: "Accra", region: "Greater Accra" },
+            { name: "37 Military Hospital", lat: 5.5891, lng: -0.1848, type: "hospital", 
+              specialties: ["internal", "emergency"], equipment: ["X-ray", "Ultrasound"],
+              capacity: 500, city: "Accra", region: "Greater Accra" },
+            { name: "Greater Accra Regional Hospital", lat: 5.5501, lng: -0.2018, type: "hospital", 
+              specialties: ["emergency", "internal", "surgery"], equipment: ["CT", "X-ray"],
+              capacity: 400, city: "Accra", region: "Greater Accra" },
+            
+            // Ashanti Region
+            { name: "Komfo Anokye Teaching Hospital", lat: 6.6885, lng: -1.6244, type: "hospital", 
+              specialties: ["cardiology", "emergency", "trauma", "surgery"], equipment: ["CT", "MRI", "Cath Lab"],
+              capacity: 1200, city: "Kumasi", region: "Ashanti" },
+            { name: "Anwiam Hospital", lat: 6.6756, lng: -1.6125, type: "hospital", 
+              specialties: ["emergency", "internal", "surgery", "ob-gyn"], equipment: ["Ultrasound", "ECG"],
+              capacity: 100, city: "Kumasi", region: "Ashanti" },
+            
+            // Western Region
+            { name: "Effia-Nkwanta Regional Hospital", lat: 4.9016, lng: -1.7751, type: "hospital", 
+              specialties: ["emergency", "internal", "surgery"], equipment: ["X-ray", "Ultrasound"],
+              capacity: 350, city: "Sekondi", region: "Western" },
+            { name: "2BN Military Hospital", lat: 4.8845, lng: -1.7588, type: "hospital", 
+              specialties: ["internal", "dentistry", "emergency"], equipment: ["X-ray"],
+              capacity: 150, city: "Apremdo", region: "Western" },
+            
+            // Northern Region
+            { name: "Tamale Teaching Hospital", lat: 9.4034, lng: -0.8424, type: "hospital", 
+              specialties: ["emergency", "internal", "surgery"], equipment: ["CT", "X-ray"],
+              capacity: 600, city: "Tamale", region: "Northern" },
+            { name: "Yendi District Hospital", lat: 9.4424, lng: -0.0093, type: "hospital", 
+              specialties: ["internal"], equipment: ["X-ray"],
+              capacity: 80, city: "Yendi", region: "Northern" },
+            
+            // Volta Region
+            { name: "Anfoega Catholic Hospital", lat: 6.5167, lng: 0.5167, type: "hospital", 
+              specialties: ["internal"], equipment: ["X-ray"],
+              capacity: 120, city: "Anfoega", region: "Volta" },
+            
+            // Central Region
+            { name: "Ankaful Psychiatric Hospital", lat: 5.2694, lng: -1.0831, type: "hospital", 
+              specialties: ["psychiatry", "internal"], equipment: ["X-ray"],
+              capacity: 250, city: "Cape Coast", region: "Central" },
+            
+            // Clinics (smaller facilities)
+            { name: "1st Foundation Clinic", lat: 5.5589, lng: -0.2514, type: "clinic", 
+              specialties: ["internal"], equipment: [],
+              capacity: 20, city: "Dansoman", region: "Greater Accra" },
+            { name: "3E Medical Center", lat: 5.5672, lng: -0.1947, type: "clinic", 
+              specialties: ["internal"], equipment: ["Ultrasound"],
+              capacity: 30, city: "Accra", region: "Greater Accra" },
+            { name: "Angela Catholic Clinic", lat: 5.2834, lng: -2.4514, type: "clinic", 
+              specialties: ["internal"], equipment: [],
+              capacity: 25, city: "New Takoradi", region: "Western" },
+        ];
+        
+        // Scenarios with AI reasoning steps
+        const scenarios = [
+            {
+                title: "Emergency: Cardiac Patient",
+                origin: { name: "3E Medical Center", lat: 5.5672, lng: -0.1947 },
+                destination: { name: "Korle Bu Teaching Hospital", lat: 5.5431, lng: -0.2273 },
+                reasoning: [
+                    {
+                        step: 1,
+                        title: "Patient Assessment",
+                        content: "67-year-old male presenting with chest pain, elevated troponin. Suspected STEMI (ST-Elevation Myocardial Infarction).",
+                        data: "Vitals: BP 140/90, HR 102, O2 92%"
+                    },
+                    {
+                        step: 2,
+                        title: "Capability Requirements",
+                        content: "Query database for facilities with: Emergency Medicine, Cardiology specialty, Cardiac Catheterization Lab, 24/7 operation.",
+                        data: "Required: [cardiology, cath_lab, emergency_24/7]"
+                    },
+                    {
+                        step: 3,
+                        title: "Facility Matching",
+                        content: "Found 2 facilities in Greater Accra: Korle Bu (2.4km), GRRH (3.1km). Korle Bu has dedicated STEMI protocol.",
+                        data: "Match Score: Korle Bu: 95%, GRRH: 78%"
+                    },
+                    {
+                        step: 4,
+                        title: "Route Optimization",
+                        content: "Calculate fastest route considering traffic, road conditions. Estimated time: 12 minutes via Ring Road.",
+                        data: "Distance: 2.4km, ETA: 12min, Traffic: Light"
+                    },
+                    {
+                        step: 5,
+                        title: "Pre-arrival Alert",
+                        content: "Sent automated alert to Korle Bu ER with patient vitals, ETA, and preliminary diagnosis. Cath lab team notified.",
+                        data: "Status: Team ready, Bed assigned: ER-7"
+                    }
+                ],
+                waypoints: []
+            },
+            {
+                title: "Trauma Transfer",
+                origin: { name: "Angela Catholic Clinic", lat: 5.2834, lng: -2.4514 },
+                destination: { name: "Komfo Anokye Teaching Hospital", lat: 6.6885, lng: -1.6244 },
+                reasoning: [
+                    {
+                        step: 1,
+                        title: "Initial Triage",
+                        content: "Motorcycle accident victim at rural clinic. Suspected internal bleeding, fractures. Clinic lacks surgical capability.",
+                        data: "GCS: 12, Bleeding: Moderate, Fractures: Multiple"
+                    },
+                    {
+                        step: 2,
+                        title: "Multi-hop Reasoning",
+                        content: "Patient too unstable for 180km direct transfer. Route through Effia-Nkwanta (40km) for stabilization, then to Komfo Anokye.",
+                        data: "Hop 1: 40km → stabilize, Hop 2: 165km → surgery"
+                    },
+                    {
+                        step: 3,
+                        title: "Capability Verification",
+                        content: "Effia-Nkwanta confirmed: Blood bank available, Emergency surgery if needed. Komfo Anokye: Trauma center, Orthopedic surgery.",
+                        data: "Verified: Blood units: 15+, OR available: Yes"
+                    },
+                    {
+                        step: 4,
+                        title: "Coordination Protocol",
+                        content: "Ambulance dispatched to clinic. Effia-Nkwanta ER prepared. Air ambulance on standby if condition deteriorates.",
+                        data: "Ambulance ETA: 25min, Air backup: Ready"
+                    },
+                    {
+                        step: 5,
+                        title: "Resource Allocation",
+                        content: "Blood cross-match initiated at both hospitals. Orthopedic surgeon alerted at Komfo Anokye. ICU bed reserved.",
+                        data: "Blood type: O+, Surgeon: Dr. Mensah, ICU: Bed 12"
+                    }
+                ],
+                waypoints: [{ name: "Effia-Nkwanta Regional Hospital", lat: 4.9016, lng: -1.7751 }]
+            },
+            {
+                title: "Specialist Rotation",
+                origin: { name: "Korle Bu Teaching Hospital", lat: 5.5431, lng: -0.2273 },
+                destination: { name: "Korle Bu Teaching Hospital", lat: 5.5431, lng: -0.2273 },
+                reasoning: [
+                    {
+                        step: 1,
+                        title: "Gap Analysis",
+                        content: "Identified 5 facilities in Northern/Volta regions with ZERO cardiology coverage. Combined catchment: 1.2M people.",
+                        data: "Facilities: Yendi, Anfoega, 3 rural clinics"
+                    },
+                    {
+                        step: 2,
+                        title: "Route Optimization",
+                        content: "Applied Traveling Salesman algorithm to minimize total distance. Optimal 3-day rotation covering all facilities.",
+                        data: "Total distance: 687km, Days: 3, Patients/day: ~40"
+                    },
+                    {
+                        step: 3,
+                        title: "Scheduling Algorithm",
+                        content: "Day 1: Tamale Teaching Hospital (150 patients). Day 2: Yendi (80 patients). Day 3: Anfoega (60 patients).",
+                        data: "Total reach: 290 patients/rotation"
+                    },
+                    {
+                        step: 4,
+                        title: "Equipment Planning",
+                        content: "Mobile ECG, portable echo, medications transported. Each facility pre-screens patients 2 weeks prior via telemedicine.",
+                        data: "Equipment: 2 ECG units, 1 portable echo, meds"
+                    },
+                    {
+                        step: 5,
+                        title: "Impact Projection",
+                        content: "Estimated 290 patients/month gain cardiology access. Reduced emergency transfers by 40%. Cost: $8,500/month vs building new centers: $2.5M.",
+                        data: "ROI: 294 months break-even, Lives impacted: 3,480/year"
+                    }
+                ],
+                waypoints: [
+                    { name: "Tamale Teaching Hospital", lat: 9.4034, lng: -0.8424 },
+                    { name: "Yendi District Hospital", lat: 9.4424, lng: -0.0093 },
+                    { name: "Anfoega Catholic Hospital", lat: 6.5167, lng: 0.5167 }
+                ]
+            },
+            {
+                title: "Medical Desert Analysis",
+                origin: null,
+                destination: null,
+                reasoning: [
+                    {
+                        step: 1,
+                        title: "Population Density Mapping",
+                        content: "Overlaid population data with facility locations. Used 50km radius as 'access threshold' based on transport data.",
+                        data: "Total population: 31M, Covered: 23M (74%)"
+                    },
+                    {
+                        step: 2,
+                        title: "Desert Identification",
+                        content: "Identified 8 regions where >100,000 people live >50km from ANY facility. Most critical: Upper West (340k), Upper East (280k).",
+                        data: "Medical deserts: 8, Underserved: 7.8M people"
+                    },
+                    {
+                        step: 3,
+                        title: "Severity Scoring",
+                        content: "Ranked deserts by: population size, distance to care, disease burden, poverty rate. Upper West scores 94/100 (critical).",
+                        data: "Top 3: Upper West (94), Upper East (87), Northern rural (79)"
+                    },
+                    {
+                        step: 4,
+                        title: "Facility Placement Algorithm",
+                        content: "Ran max-coverage optimization: 3 new facilities would cover 5.2M people. Optimal locations calculated using geographic median.",
+                        data: "Proposed: Wa (2.1M coverage), Bolgatanga (1.8M), Damongo (1.3M)"
+                    },
+                    {
+                        step: 5,
+                        title: "Investment Prioritization",
+                        content: "Recommended phased approach: Year 1: Wa hospital ($3.5M). Year 2: Bolgatanga clinic ($1.2M). Mobile units ($500k/year).",
+                        data: "Total investment: $6.4M over 3 years, Impact: 5.2M people"
+                    }
+                ],
+                waypoints: []
+            },
+            {
+                title: "Equipment Distribution",
+                origin: { name: "Korle Bu Teaching Hospital", lat: 5.5431, lng: -0.2273 },
+                destination: { name: "Korle Bu Teaching Hospital", lat: 5.5431, lng: -0.2273 },
+                reasoning: [
+                    {
+                        step: 1,
+                        title: "Demand Forecasting",
+                        content: "Analyzed referral data: 2,300 patients/month travel >100km for CT scans. Wait time: 3-6 weeks in urban centers.",
+                        data: "Monthly demand: 2,300 scans, Current capacity: 1,400"
+                    },
+                    {
+                        step: 2,
+                        title: "Mobile Unit Routing",
+                        content: "Acquired mobile CT scanner. Optimal 2-week rotation: Week 1: Ashanti region (5 facilities). Week 2: Western/Central (4 facilities).",
+                        data: "Facilities/week: 4-5, Scans/day: 25-30"
+                    },
+                    {
+                        step: 3,
+                        title: "Appointment Coordination",
+                        content: "Built AI scheduler: facilities submit patient lists 3 weeks advance. System optimizes by urgency, distance, equipment positioning.",
+                        data: "Efficiency: 92%, No-show rate reduced: 8% → 2%"
+                    },
+                    {
+                        step: 4,
+                        title: "Impact Measurement",
+                        content: "After 6 months: 3,200 additional scans completed. Avg patient travel reduced 140km → 35km. 18 cancers detected earlier.",
+                        data: "Additional scans: 3,200, Lives saved (est): 14-22"
+                    },
+                    {
+                        step: 5,
+                        title: "Scale-up Planning",
+                        content: "ROI achieved in 11 months. Recommended: 2 additional mobile units to cover Northern regions. Total investment: $2.8M.",
+                        data: "Units needed: 3 total, Coverage: 95% of population"
+                    }
+                ],
+                waypoints: [
+                    { name: "Komfo Anokye Teaching Hospital", lat: 6.6885, lng: -1.6244 },
+                    { name: "Effia-Nkwanta Regional Hospital", lat: 4.9016, lng: -1.7751 },
+                    { name: "Ankaful Psychiatric Hospital", lat: 5.2694, lng: -1.0831 }
+                ]
+            }
+        ];
+        
+        let currentScenario = 0;
+        
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([7.9465, -1.0232], 7);
+            
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© OpenStreetMap contributors © CARTO',
+                maxZoom: 19
+            }).addTo(map);
+            
+            // Add all facility markers
+            addFacilityMarkers();
+            
+            // Load initial scenario
+            loadScenario(0);
+        }
+        
+        function addFacilityMarkers() {
+            facilities.forEach(facility => {
+                const color = getFacilityColor(facility);
+                const icon = L.divIcon({
+                    className: 'custom-marker',
+                    html: `<div style="background: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px ${color};"></div>`,
+                    iconSize: [20, 20]
+                });
+                
+                const marker = L.marker([facility.lat, facility.lng], { icon: icon })
+                    .bindPopup(createFacilityPopup(facility));
+                
+                marker.addTo(map);
+                markers.push(marker);
+            });
+        }
+        
+        function getFacilityColor(facility) {
+            if (facility.specialties.includes('trauma') || facility.specialties.includes('emergency')) {
+                return '#ff0080';
+            } else if (facility.specialties.includes('cardiology')) {
+                return '#00f3ff';
+            } else if (facility.type === 'hospital') {
+                return '#9d00ff';
+            } else {
+                return '#ffd700';
+            }
+        }
+        
+        function createFacilityPopup(facility) {
+            return `
+                <div class="facility-popup">
+                    <div class="facility-name">${facility.name}</div>
+                    <div class="facility-info">📍 ${facility.city}, ${facility.region}</div>
+                    <div class="facility-info">🏥 ${facility.type.toUpperCase()} | Beds: ${facility.capacity}</div>
+                    <div style="margin-top: 8px;">
+                        ${facility.specialties.map(s => `<span class="facility-badge">${s}</span>`).join('')}
+                    </div>
+                    ${facility.equipment.length > 0 ? `
+                        <div style="margin-top: 8px;">
+                            <strong style="color: var(--neon-purple);">Equipment:</strong><br>
+                            ${facility.equipment.join(', ')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+        
+        function loadScenario(index) {
+            currentScenario = index;
+            const scenario = scenarios[index];
+            
+            // Update active card
+            document.querySelectorAll('.scenario-card').forEach((card, i) => {
+                card.classList.toggle('active', i === index);
+            });
+            
+            // Display reasoning steps
+            displayReasoningSteps(scenario.reasoning);
+            
+            // Clear existing routes
+            clearRoutes();
+            
+            // Draw new route if applicable
+            if (scenario.origin && scenario.destination) {
+                drawRoute(scenario);
+            } else if (index === 3) {
+                // Medical desert visualization
+                showMedicalDeserts();
+            }
+        }
+        
+        function displayReasoningSteps(steps) {
+            const container = document.getElementById('reasoningSteps');
+            container.innerHTML = steps.map(step => `
+                <div class="reasoning-step" style="animation-delay: ${(step.step - 1) * 0.1}s;">
+                    <div class="step-title">
+                        <span class="step-number">${step.step}</span>
+                        ${step.title}
+                    </div>
+                    <div class="step-content">
+                        ${step.content}
+                        ${step.data ? `<div class="step-data">${step.data}</div>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function drawRoute(scenario) {
+            const waypoints = [
+                L.latLng(scenario.origin.lat, scenario.origin.lng),
+                ...scenario.waypoints.map(wp => L.latLng(wp.lat, wp.lng)),
+                L.latLng(scenario.destination.lat, scenario.destination.lng)
+            ];
+            
+            currentRoute = L.Routing.control({
+                waypoints: waypoints,
+                routeWhileDragging: false,
+                lineOptions: {
+                    styles: [{
+                        color: '#00f3ff',
+                        opacity: 0.8,
+                        weight: 5
+                    }]
+                },
+                createMarker: function(i, wp, nWps) {
+                    const colors = ['#ff0080', '#ffd700', '#00f3ff'];
+                    return L.marker(wp.latLng, {
+                        icon: L.divIcon({
+                            className: 'route-marker',
+                            html: `<div style="background: ${colors[i % 3]}; width: 30px; height: 30px; border-radius: 50%; border: 4px solid white; box-shadow: 0 0 20px ${colors[i % 3]}; display: flex; align-items: center; justify-content: center; font-weight: 700; color: white;">${i + 1}</div>`,
+                            iconSize: [30, 30]
+                        })
+                    });
+                }
+            }).addTo(map);
+            
+            // Update route info
+            setTimeout(() => {
+                updateRouteInfo(scenario);
+                document.getElementById('routeInfo').classList.add('active');
+            }, 1000);
+            
+            // Update stats
+            const distance = calculateDistance(waypoints);
+            const time = Math.round(distance / 1.2); // Rough estimate
+            document.getElementById('distanceStat').textContent = distance.toFixed(1);
+            document.getElementById('timeStat').textContent = time;
+            document.getElementById('facilitiesStat').textContent = waypoints.length;
+        }
+        
+        function calculateDistance(waypoints) {
+            let total = 0;
+            for (let i = 0; i < waypoints.length - 1; i++) {
+                total += waypoints[i].distanceTo(waypoints[i + 1]) / 1000;
+            }
+            return total;
+        }
+        
+        function updateRouteInfo(scenario) {
+            document.getElementById('routeOrigin').textContent = scenario.origin.name;
+            document.getElementById('routeDest').textContent = scenario.destination.name;
+            
+            const distance = calculateDistance([
+                L.latLng(scenario.origin.lat, scenario.origin.lng),
+                ...scenario.waypoints.map(wp => L.latLng(wp.lat, wp.lng)),
+                L.latLng(scenario.destination.lat, scenario.destination.lng)
+            ]);
+            const time = Math.round(distance / 1.2);
+            
+            document.getElementById('routeDistance').textContent = `${distance.toFixed(1)} km`;
+            document.getElementById('routeTime').textContent = `${time} min`;
+            document.getElementById('routeMatch').textContent = '95%';
+        }
+        
+        function showMedicalDeserts() {
+            // Show areas with limited healthcare access
+            const desertAreas = [
+                { lat: 10.5, lng: -2.5, radius: 80000, name: "Upper West Desert" },
+                { lat: 10.8, lng: -0.8, radius: 70000, name: "Upper East Desert" },
+                { lat: 9.2, lng: -1.8, radius: 60000, name: "Northern Rural Area" }
+            ];
+            
+            desertAreas.forEach(area => {
+                L.circle([area.lat, area.lng], {
+                    color: '#ff4500',
+                    fillColor: '#ff4500',
+                    fillOpacity: 0.2,
+                    radius: area.radius
+                }).addTo(map).bindPopup(`
+                    <div class="facility-popup">
+                        <div class="facility-name" style="color: #ff4500;">⚠️ Medical Desert</div>
+                        <div class="facility-info">${area.name}</div>
+                        <div class="facility-info">Limited healthcare access</div>
+                        <div class="facility-info">Population: >100,000</div>
+                        <div class="facility-info">Distance to facility: >50km</div>
+                    </div>
+                `);
+            });
+            
+            map.setView([9.5, -1.5], 6.5);
+        }
+        
+        function clearRoutes() {
+            if (currentRoute) {
+                map.removeControl(currentRoute);
+                currentRoute = null;
+            }
+            document.getElementById('routeInfo').classList.remove('active');
+        }
+        
+        function toggleHeatmap() {
+            alert('Heatmap visualization would show facility density and access patterns');
+        }
+        
+        function showAllFacilities() {
+            alert(`Displaying all ${facilities.length} facilities in the database`);
+        }
+        
+        // Initialize on load
+        window.onload = initMap;
+    </script>
+</body>
+</html>

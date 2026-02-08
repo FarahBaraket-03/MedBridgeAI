@@ -1,0 +1,398 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+/* ── Cyberpunk Dark Theme ─────────────────────────────────────── */
+:root {
+  --bg-deep: #060a14;
+  --bg-main: #0a0e1a;
+  --bg-card: #0f1422;
+  --bg-card-hover: #141a2e;
+  --bg-surface: #161d30;
+  --cyan: #00f3ff;
+  --cyan-dim: #00b8c9;
+  --cyan-glow: rgba(0, 243, 255, 0.15);
+  --pink: #ff006e;
+  --pink-dim: #c9005a;
+  --pink-glow: rgba(255, 0, 110, 0.15);
+  --purple: #8338ec;
+  --green: #06ffa5;
+  --green-dim: #04c980;
+  --yellow: #ffd60a;
+  --orange: #ff8500;
+  --text-primary: #e8edf5;
+  --text-secondary: #8892a8;
+  --text-muted: #505a70;
+  --border-dim: rgba(0, 243, 255, 0.1);
+  --border-med: rgba(0, 243, 255, 0.2);
+  --border-bright: rgba(0, 243, 255, 0.4);
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+}
+
+/* ── Animated grid background (from routing map ref) ──────────── */
+.grid-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image:
+    linear-gradient(90deg, rgba(0, 243, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(rgba(0, 243, 255, 0.025) 1px, transparent 1px);
+  background-size: 50px 50px;
+  animation: gridMove 30s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes gridMove {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(50px, 50px); }
+}
+
+/* ── AI Summary card glow ─────────────────────────────────────── */
+.ai-summary-glow {
+  animation: summaryPulse 3s ease-in-out infinite;
+}
+@keyframes summaryPulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(0, 243, 255, 0.1); }
+  50% { box-shadow: 0 0 25px rgba(0, 243, 255, 0.2); }
+}
+
+/* ── Neon glow utilities ──────────────────────────────────────── */
+.neon-border {
+  border: 1px solid var(--border-med);
+  box-shadow: 0 0 8px var(--cyan-glow), inset 0 0 8px rgba(0, 243, 255, 0.03);
+}
+
+.neon-border-pink {
+  border: 1px solid rgba(255, 0, 110, 0.25);
+  box-shadow: 0 0 8px var(--pink-glow), inset 0 0 8px rgba(255, 0, 110, 0.03);
+}
+
+.neon-text {
+  color: var(--cyan);
+  text-shadow: 0 0 10px rgba(0, 243, 255, 0.5), 0 0 20px rgba(0, 243, 255, 0.2);
+}
+
+.neon-text-pink {
+  color: var(--pink);
+  text-shadow: 0 0 10px rgba(255, 0, 110, 0.5), 0 0 20px rgba(255, 0, 110, 0.2);
+}
+
+.neon-text-green {
+  color: var(--green);
+  text-shadow: 0 0 10px rgba(6, 255, 165, 0.5);
+}
+
+/* ── Glass card ───────────────────────────────────────────────── */
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  transition: all 0.2s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--border-med);
+  background: var(--bg-card-hover);
+}
+
+/* ── Mono font ────────────────────────────────────────────────── */
+.font-mono {
+  font-family: var(--font-mono) !important;
+}
+
+/* ── Animated gradient button ─────────────────────────────────── */
+.btn-neon {
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  color: #fff;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: none;
+  padding: 0.5rem 1.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+.btn-neon:hover {
+  box-shadow: 0 0 20px var(--cyan-glow), 0 0 40px rgba(131, 56, 236, 0.2);
+  transform: translateY(-1px);
+}
+.btn-neon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Pulse dot ────────────────────────────────────────────────── */
+.pulse-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--green); }
+  50%      { opacity: 0.5; box-shadow: 0 0 12px var(--green), 0 0 24px rgba(6, 255, 165, 0.3); }
+}
+
+/* ── Scanline overlay ─────────────────────────────────────────── */
+.scanlines::after {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 243, 255, 0.008) 2px,
+    rgba(0, 243, 255, 0.008) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Stat number ──────────────────────────────────────────────── */
+.stat-number {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 2rem;
+  letter-spacing: 0.05em;
+}
+
+/* ── Tag / badge ──────────────────────────────────────────────── */
+.cyber-badge {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cyber-badge-cyan {
+  background: rgba(0, 243, 255, 0.1);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 243, 255, 0.3);
+}
+
+.cyber-badge-pink {
+  background: rgba(255, 0, 110, 0.1);
+  color: var(--pink);
+  border: 1px solid rgba(255, 0, 110, 0.3);
+}
+
+.cyber-badge-green {
+  background: rgba(6, 255, 165, 0.1);
+  color: var(--green);
+  border: 1px solid rgba(6, 255, 165, 0.3);
+}
+
+.cyber-badge-purple {
+  background: rgba(131, 56, 236, 0.1);
+  color: var(--purple);
+  border: 1px solid rgba(131, 56, 236, 0.3);
+}
+
+.cyber-badge-yellow {
+  background: rgba(255, 214, 10, 0.1);
+  color: var(--yellow);
+  border: 1px solid rgba(255, 214, 10, 0.3);
+}
+
+.cyber-badge-orange {
+  background: rgba(255, 133, 0, 0.1);
+  color: var(--orange);
+  border: 1px solid rgba(255, 133, 0, 0.3);
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────── */
+.cyber-tab {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.cyber-tab:hover {
+  color: var(--cyan);
+  background: var(--cyan-glow);
+}
+.cyber-tab.active {
+  color: var(--cyan);
+  border-color: var(--border-med);
+  border-bottom-color: var(--cyan);
+  background: rgba(0, 243, 255, 0.05);
+}
+
+/* ── Input ────────────────────────────────────────────────────── */
+.cyber-input {
+  background: var(--bg-card);
+  border: 1px solid var(--border-med);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  padding: 0.75rem 1rem;
+  outline: none;
+  transition: all 0.2s;
+  width: 100%;
+}
+.cyber-input::placeholder {
+  color: var(--text-muted);
+}
+.cyber-input:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px var(--cyan-glow);
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 243, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 243, 255, 0.4);
+}
+
+/* ── Leaflet dark overrides ───────────────────────────────────── */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  border-radius: 12px;
+  background: var(--bg-deep) !important;
+}
+.leaflet-popup-content-wrapper {
+  background: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-med) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 0 20px rgba(0,0,0,0.5) !important;
+}
+.leaflet-popup-tip {
+  background: var(--bg-card) !important;
+}
+.leaflet-popup-content {
+  font-family: var(--font-sans) !important;
+  font-size: 0.8rem !important;
+}
+.leaflet-control-zoom a {
+  background: var(--bg-card) !important;
+  color: var(--cyan) !important;
+  border-color: var(--border-med) !important;
+}
+.leaflet-control-attribution {
+  background: rgba(6, 10, 20, 0.8) !important;
+  color: var(--text-muted) !important;
+  font-size: 0.6rem !important;
+}
+.leaflet-control-attribution a {
+  color: var(--cyan-dim) !important;
+}
+
+/* ── Animate trace steps ──────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in {
+  animation: slideIn 0.4s ease-out forwards;
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 5px var(--cyan-glow); }
+  50%      { box-shadow: 0 0 15px var(--cyan-glow), 0 0 30px rgba(0, 243, 255, 0.1); }
+}
+
+/* ── Map legend ───────────────────────────────────────────────── */
+.map-legend {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+  background: rgba(10, 14, 26, 0.9);
+  border: 1px solid var(--border-med);
+  border-radius: 8px;
+  padding: 10px 14px;
+  backdrop-filter: blur(10px);
+}
+
+/* ── Route overlay ────────────────────────────────────────────── */
+.route-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1000;
+  background: rgba(10, 14, 26, 0.92);
+  border: 1px solid var(--border-med);
+  border-radius: 10px;
+  padding: 14px;
+  min-width: 240px;
+  backdrop-filter: blur(10px);
+}
+
+/* ── Loading spinner ──────────────────────────────────────────── */
+.cyber-spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--border-dim);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Suppress DaisyUI default theme colors ────────────────────── */
+[data-theme="dark"] {
+  --b1: 6 10 20;
+  --b2: 10 14 26;
+  --b3: 15 20 34;
+  --bc: 232 237 245;
+  --p: 0 243 255;
+  --pc: 6 10 20;
+  --s: 255 0 110;
+  --sc: 255 255 255;
+  --a: 131 56 236;
+  --ac: 255 255 255;
+  --n: 80 90 112;
+  --nc: 232 237 245;
+}

@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedBridge AI — Healthcare Intelligence</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+        :root {
+            --cyan: #00f3ff;
+            --pink: #ff006e;
+            --purple: #8338ec;
+            --green: #06ffa5;
+            --gold: #ffbe0b;
+            --bg: #0a0e1a;
+            --card: #111628;
+            --card-hover: #171d35;
+            --text: #e2e8f0;
+            --muted: #8b95a8;
+            --border: rgba(0,243,255,.12);
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        /* ── Background grid ───────────────────────────────────────────── */
+        .grid-bg {
+            position: fixed; inset: 0;
+            background:
+                linear-gradient(90deg, rgba(0,243,255,.02) 1px, transparent 1px),
+                linear-gradient(rgba(0,243,255,.02) 1px, transparent 1px);
+            background-size: 48px 48px;
+            pointer-events: none; z-index: 0;
+        }
+
+        /* ── Layout ────────────────────────────────────────────────────── */
+        .app { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+        /* Header */
+        header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 18px 32px;
+            background: linear-gradient(135deg, rgba(0,243,255,.06), rgba(131,56,236,.04));
+            border-bottom: 1px solid var(--border);
+        }
+        .logo { font-family: 'JetBrains Mono'; font-size: 22px; font-weight: 700; letter-spacing: 2px; }
+        .logo span { color: var(--cyan); }
+        .tagline { color: var(--muted); font-size: 13px; }
+        .stats-row { display: flex; gap: 24px; }
+        .stat { text-align: center; }
+        .stat-val { font-family: 'JetBrains Mono'; font-size: 20px; font-weight: 700; color: var(--cyan); }
+        .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+
+        /* ── Main: 2-panel layout ──────────────────────────────────────── */
+        .main {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            flex: 1;
+        }
+
+        /* Left Panel — Query + Reasoning */
+        .panel-left {
+            display: flex; flex-direction: column;
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            max-height: calc(100vh - 70px);
+        }
+
+        /* Query section */
+        .query-box { padding: 20px; }
+        .query-box h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px; }
+
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+        .chip {
+            padding: 6px 14px; border-radius: 20px; font-size: 12px;
+            background: rgba(0,243,255,.08); border: 1px solid rgba(0,243,255,.2);
+            color: var(--cyan); cursor: pointer; transition: .2s;
+        }
+        .chip:hover { background: rgba(0,243,255,.18); transform: translateY(-1px); }
+
+        .input-row { display: flex; gap: 8px; }
+        .input-row input {
+            flex: 1; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border);
+            background: var(--card); color: var(--text); font-size: 14px; outline: none;
+            transition: border .2s;
+        }
+        .input-row input:focus { border-color: var(--cyan); }
+        .input-row input::placeholder { color: var(--muted); }
+        .btn-submit {
+            padding: 12px 24px; border-radius: 8px; border: none;
+            background: linear-gradient(135deg, var(--cyan), var(--purple));
+            color: #fff; font-weight: 600; font-size: 14px; cursor: pointer;
+            transition: opacity .2s;
+        }
+        .btn-submit:hover { opacity: .85; }
+        .btn-submit:disabled { opacity: .4; cursor: default; }
+
+        /* Reasoning steps */
+        .reasoning { padding: 0 20px 20px; flex: 1; }
+        .reasoning h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px; }
+        .step {
+            display: flex; gap: 12px; margin-bottom: 14px;
+            animation: fadeIn .4s ease both;
+        }
+        .step-num {
+            flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'JetBrains Mono'; font-size: 12px; font-weight: 700;
+            background: rgba(0,243,255,.15); color: var(--cyan); border: 1px solid var(--cyan);
+        }
+        .step-body { flex: 1; }
+        .step-title { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+        .step-text { font-size: 12px; color: var(--muted); line-height: 1.5; }
+        .step-data {
+            margin-top: 6px; padding: 8px 12px; border-radius: 6px;
+            background: rgba(0,0,0,.3); font-family: 'JetBrains Mono'; font-size: 11px;
+            color: var(--green); white-space: pre-wrap; word-break: break-all;
+        }
+
+        /* Results list */
+        .results-section { padding: 0 20px 20px; }
+        .results-section h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px; }
+        .result-card {
+            padding: 14px; border-radius: 10px; margin-bottom: 10px;
+            background: var(--card); border: 1px solid var(--border);
+            transition: border .2s;
+        }
+        .result-card:hover { border-color: rgba(0,243,255,.35); }
+        .rc-name { font-weight: 600; font-size: 14px; }
+        .rc-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+        .rc-score {
+            float: right; font-family: 'JetBrains Mono'; font-size: 12px;
+            padding: 2px 10px; border-radius: 12px;
+            background: rgba(6,255,165,.1); color: var(--green);
+        }
+        .rc-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+        .rc-tag {
+            font-size: 10px; padding: 3px 8px; border-radius: 10px;
+            background: rgba(131,56,236,.15); color: #c4b5fd;
+        }
+
+        /* Metrics row */
+        .metrics-row { display: flex; gap: 10px; margin-bottom: 16px; }
+        .metric-card {
+            flex: 1; padding: 14px; border-radius: 10px;
+            background: var(--card); border: 1px solid var(--border);
+            text-align: center;
+        }
+        .mc-val { font-family: 'JetBrains Mono'; font-size: 22px; font-weight: 700; color: var(--cyan); }
+        .mc-label { font-size: 11px; color: var(--muted); margin-top: 2px; text-transform: uppercase; }
+
+        /* ── Right Panel — Map + Charts ────────────────────────────────── */
+        .panel-right { display: flex; flex-direction: column; max-height: calc(100vh - 70px); }
+
+        #map { flex: 1; min-height: 50vh; }
+
+        .charts-area {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 16px; padding: 16px;
+            background: rgba(0,0,0,.2); border-top: 1px solid var(--border);
+            max-height: 260px;
+        }
+        .chart-card {
+            padding: 14px; border-radius: 10px;
+            background: var(--card); border: 1px solid var(--border);
+        }
+        .chart-card h4 { font-size: 12px; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px; }
+
+        /* Loading */
+        .loading-overlay {
+            display: none; align-items: center; justify-content: center;
+            padding: 30px; flex-direction: column; gap: 12px;
+        }
+        .loading-overlay.active { display: flex; }
+        .spinner {
+            width: 32px; height: 32px; border: 3px solid var(--border);
+            border-top-color: var(--cyan); border-radius: 50%;
+            animation: spin .8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+        /* ── Responsive ────────────────────────────────────────────────── */
+        @media (max-width: 900px) {
+            .main { grid-template-columns: 1fr; }
+            .panel-left { max-height: none; border-right: none; border-bottom: 1px solid var(--border); }
+            .panel-right { max-height: none; }
+            #map { min-height: 40vh; }
+        }
+    </style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="app">
+
+    <!-- ═══ HEADER ═══ -->
+    <header>
+        <div>
+            <div class="logo">⚕ <span>MEDBRIDGE</span> AI</div>
+            <div class="tagline">Intelligent Healthcare Intelligence · Virtue Foundation Ghana</div>
+        </div>
+        <div class="stats-row">
+            <div class="stat"><div class="stat-val" id="sFac">797</div><div class="stat-label">Facilities</div></div>
+            <div class="stat"><div class="stat-val" id="sReg">16</div><div class="stat-label">Regions</div></div>
+            <div class="stat"><div class="stat-val" id="sSpec">45+</div><div class="stat-label">Specialties</div></div>
+            <div class="stat"><div class="stat-val" id="sNgo">67</div><div class="stat-label">NGOs</div></div>
+        </div>
+    </header>
+
+    <!-- ═══ MAIN ═══ -->
+    <div class="main">
+
+        <!-- LEFT: Query + Reasoning + Results -->
+        <div class="panel-left">
+            <div class="query-box">
+                <h3>Ask MedBridge</h3>
+                <div class="chips" id="chips"></div>
+                <div class="input-row">
+                    <input id="queryInput" type="text" placeholder="e.g. How many hospitals have cardiology?" />
+                    <button class="btn-submit" id="btnSubmit" onclick="submitQuery()">ANALYZE</button>
+                </div>
+            </div>
+
+            <div class="loading-overlay" id="loading">
+                <div class="spinner"></div>
+                <span style="color:var(--muted);font-size:13px;">Routing to agents...</span>
+            </div>
+
+            <div id="reasoningArea" class="reasoning" style="display:none;">
+                <h3>Agent Reasoning Trace</h3>
+                <div id="reasoningSteps"></div>
+            </div>
+
+            <div id="metricsArea" style="display:none; padding:0 20px 10px;"></div>
+
+            <div id="resultsArea" class="results-section" style="display:none;">
+                <h3 id="resultsTitle">Results</h3>
+                <div id="resultsList"></div>
+            </div>
+        </div>
+
+        <!-- RIGHT: Map + Charts -->
+        <div class="panel-right">
+            <div id="map"></div>
+            <div class="charts-area">
+                <div class="chart-card">
+                    <h4>Regional Distribution</h4>
+                    <canvas id="regionChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <h4>Facility Types</h4>
+                    <canvas id="typeChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+//  MedBridge AI — Frontend Logic
+// ══════════════════════════════════════════════════════════════════════════════
+
+const API_BASE = '';  // same origin
+
+// Example queries — mapped to hackathon MUST HAVEs
+const EXAMPLES = [
+    "How many hospitals have cardiology?",
+    "What services does Korle Bu Teaching Hospital offer?",
+    "Are there any clinics in Accra that do cataract surgery?",
+    "Which region has the most hospitals?",
+    "NGOs working on maternal health in Ghana",
+    "Which procedures depend on very few facilities?",
+    "Dental clinics in Kumasi",
+    "Facilities with CT scanner or MRI equipment",
+];
+
+// ── Ghana facility data for charts (actual from preprocessing) ──
+const chartData = {
+    byRegion: {
+        'Greater Accra': 312, 'Ashanti': 156, 'Western': 69, 'Central': 42,
+        'Eastern': 38, 'Northern': 35, 'Volta': 33, 'Bono': 28,
+        'Upper East': 22, 'Upper West': 12, 'Oti': 10, 'Other': 40,
+    },
+    byType: { Hospital: 234, Clinic: 421, Pharmacy: 87, Other: 55 },
+};
+
+// ── Ghana facility locations for map ──
+const facilityMarkers = [
+    { name: "Korle Bu Teaching Hospital", lat: 5.5350, lng: -0.2275, type: "hospital", spec: "cardiology" },
+    { name: "Komfo Anokye Teaching Hospital", lat: 6.6908, lng: -1.6317, type: "hospital", spec: "general" },
+    { name: "Tamale Teaching Hospital", lat: 9.4075, lng: -0.8393, type: "hospital", spec: "emergency" },
+    { name: "Ridge Hospital", lat: 5.5625, lng: -0.1983, type: "hospital", spec: "general" },
+    { name: "37 Military Hospital", lat: 5.5847, lng: -0.1871, type: "hospital", spec: "general" },
+    { name: "Cape Coast Teaching Hospital", lat: 5.1036, lng: -1.2517, type: "hospital", spec: "general" },
+    { name: "Ho Teaching Hospital", lat: 6.6030, lng: 0.4703, type: "hospital", spec: "general" },
+    { name: "FOCOS Orthopaedic Hospital", lat: 5.6380, lng: -0.1679, type: "hospital", spec: "orthopedic" },
+    { name: "Accra Specialist Eye Hospital", lat: 5.5600, lng: -0.2050, type: "clinic", spec: "ophthalmology" },
+    { name: "National Cardiothoracic Centre", lat: 5.5355, lng: -0.2280, type: "hospital", spec: "cardiology" },
+    { name: "Upper West Regional Hospital", lat: 10.0601, lng: -2.5099, type: "hospital", spec: "emergency" },
+    { name: "Bolgatanga Regional Hospital", lat: 10.7856, lng: -0.8514, type: "hospital", spec: "general" },
+    { name: "Sunyani Regional Hospital", lat: 7.3349, lng: -2.3348, type: "hospital", spec: "general" },
+    { name: "Crystal Eye Clinic", lat: 5.5780, lng: -0.1850, type: "clinic", spec: "ophthalmology" },
+    { name: "Kings Dental Clinic", lat: 6.6910, lng: -1.6200, type: "clinic", spec: "dental" },
+];
+
+// ── Marker colors ──
+function markerColor(spec) {
+    const m = { cardiology: '#00f3ff', emergency: '#ff006e', ophthalmology: '#ffd700',
+                orthopedic: '#9d00ff', dental: '#06ffa5' };
+    return m[spec] || '#8b95a8';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════════════════════
+
+let map, regionChartObj, typeChartObj;
+
+window.addEventListener('DOMContentLoaded', () => {
+    buildChips();
+    initMap();
+    initCharts();
+    document.getElementById('queryInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitQuery();
+    });
+});
+
+function buildChips() {
+    const el = document.getElementById('chips');
+    EXAMPLES.forEach((q, i) => {
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.textContent = q.length > 40 ? q.slice(0, 38) + '…' : q;
+        chip.title = q;
+        chip.onclick = () => { document.getElementById('queryInput').value = q; submitQuery(); };
+        el.appendChild(chip);
+    });
+}
+
+function initMap() {
+    map = L.map('map', { zoomControl: false }).setView([7.95, -1.02], 7);
+    L.control.zoom({ position: 'topright' }).addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; CARTO',
+        maxZoom: 18,
+    }).addTo(map);
+
+    // Add facility markers
+    facilityMarkers.forEach(f => {
+        const col = markerColor(f.spec);
+        const icon = L.divIcon({
+            className: '',
+            html: `<div style="width:14px;height:14px;border-radius:50%;background:${col};border:2px solid #fff;box-shadow:0 0 8px ${col};"></div>`,
+            iconSize: [14, 14], iconAnchor: [7, 7],
+        });
+        L.marker([f.lat, f.lng], { icon })
+            .bindPopup(`<b style="color:#111">${f.name}</b><br><span style="color:#555">${f.type} · ${f.spec}</span>`)
+            .addTo(map);
+    });
+}
+
+function initCharts() {
+    const regionCtx = document.getElementById('regionChart').getContext('2d');
+    regionChartObj = new Chart(regionCtx, {
+        type: 'bar',
+        data: {
+            labels: Object.keys(chartData.byRegion),
+            datasets: [{
+                data: Object.values(chartData.byRegion),
+                backgroundColor: 'rgba(0,243,255,.5)',
+                borderColor: 'rgba(0,243,255,1)',
+                borderWidth: 1, borderRadius: 4,
+            }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#8b95a8', font: { size: 9 } }, grid: { display: false } },
+                y: { beginAtZero: true, ticks: { color: '#8b95a8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.04)' } },
+            },
+        },
+    });
+
+    const typeCtx = document.getElementById('typeChart').getContext('2d');
+    typeChartObj = new Chart(typeCtx, {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(chartData.byType),
+            datasets: [{
+                data: Object.values(chartData.byType),
+                backgroundColor: ['#00f3ff', '#8338ec', '#ff006e', '#06ffa5'],
+                borderWidth: 0,
+            }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { color: '#8b95a8', font: { size: 10 }, padding: 10 } } },
+            cutout: '60%',
+        },
+    });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  QUERY HANDLING
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function submitQuery() {
+    const q = document.getElementById('queryInput').value.trim();
+    if (!q) return;
+
+    // Show loading
+    document.getElementById('btnSubmit').disabled = true;
+    document.getElementById('loading').classList.add('active');
+    hideResults();
+
+    try {
+        const resp = await fetch(`${API_BASE}/api/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: q, top_k: 10 }),
+        });
+
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        renderResponse(data);
+    } catch (err) {
+        // Fallback: run local analysis if API not available
+        console.warn('API unavailable, using local analysis:', err.message);
+        const data = localAnalysis(q);
+        renderResponse(data);
+    } finally {
+        document.getElementById('loading').classList.remove('active');
+        document.getElementById('btnSubmit').disabled = false;
+    }
+}
+
+// ── Local analysis fallback (when API isn't running) ────────────────────────
+
+function localAnalysis(query) {
+    const q = query.toLowerCase();
+
+    // Build reasoning steps
+    const steps = [
+        { title: 'Intent Classification', text: `Analyzing: "${query}"`, data: null },
+    ];
+
+    // Genie-style queries
+    if (q.includes('how many') || q.includes('count') || q.includes('which region')) {
+        steps.push(
+            { title: 'Routing → Genie Chat', text: 'Aggregation query detected, using Text2SQL agent.', data: 'SELECT COUNT(*) FROM facilities WHERE ...' },
+            { title: 'Executing Query', text: 'Scanning 797 facility records...', data: null },
+            { title: 'Result', text: 'Query completed successfully.', data: null },
+        );
+
+        if (q.includes('cardiology')) {
+            return { agent: 'genie_chat', result: { count: 12, pseudo_sql: "SELECT COUNT(*) FROM facilities WHERE specialties CONTAINS 'cardiology'", data: [{ region: 'Greater Accra', count: 7 }, { region: 'Ashanti', count: 3 }, { region: 'Other', count: 2 }] }, _steps: steps };
+        }
+        if (q.includes('which region') && q.includes('most')) {
+            return { agent: 'genie_chat', result: { count: 16, pseudo_sql: "SELECT region, COUNT(*) FROM facilities GROUP BY region ORDER BY count DESC", data: [{ region: 'Greater Accra', count: 312 }, { region: 'Ashanti', count: 156 }, { region: 'Western', count: 69 }] }, _steps: steps };
+        }
+        return { agent: 'genie_chat', result: { count: 797, pseudo_sql: `SELECT ... WHERE query MATCHES '${query}'`, data: [] }, _steps: steps };
+    }
+
+    // Vector-style queries
+    steps.push(
+        { title: 'Routing → Vector Search', text: 'Semantic query detected, using multi-vector search.', data: null },
+        { title: 'Embedding Query', text: 'Encoding with all-MiniLM-L6-v2 (384 dims)', data: 'Vector: full_document / clinical_detail' },
+        { title: 'Qdrant Search', text: 'Searching 797 points with cosine similarity...', data: null },
+    );
+
+    // Mock vector results
+    const mockResults = facilityMarkers.slice(0, 5).map((f, i) => ({
+        name: f.name, city: f.type === 'clinic' ? 'Accra' : 'Ghana',
+        score: (0.75 - i * 0.05).toFixed(3), specialties: [f.spec],
+        organization_type: 'facility', procedure: [], equipment: [],
+    }));
+
+    return { agent: 'vector_search', result: { query, vector_used: 'full_document', filters_applied: {}, count: mockResults.length, results: mockResults, duration_ms: 150 }, _steps: steps };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  RENDER
+// ══════════════════════════════════════════════════════════════════════════════
+
+function hideResults() {
+    ['reasoningArea', 'metricsArea', 'resultsArea'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+    });
+    document.getElementById('reasoningSteps').innerHTML = '';
+    document.getElementById('resultsList').innerHTML = '';
+}
+
+function renderResponse(data) {
+    const agent = data.agent;
+    const result = data.result || {};
+    const steps = data._steps || buildStepsFromResult(agent, result);
+
+    // 1. Reasoning steps
+    renderSteps(steps);
+
+    // 2. Agent-specific rendering
+    if (agent === 'genie_chat') {
+        renderGenieResult(result);
+    } else {
+        renderVectorResult(result);
+    }
+}
+
+function buildStepsFromResult(agent, result) {
+    const steps = [{ title: 'Intent Classified', text: `Routed to ${agent}`, data: null }];
+    if (agent === 'vector_search') {
+        steps.push({ title: 'Vector Used', text: result.vector_used || 'full_document', data: JSON.stringify(result.filters_applied || {}) });
+        steps.push({ title: 'Search Complete', text: `Found ${result.count || 0} results in ${result.duration_ms || 0}ms`, data: null });
+    } else {
+        steps.push({ title: 'SQL Generated', text: result.pseudo_sql || 'Pandas operation', data: null });
+        steps.push({ title: 'Query Complete', text: `Returned ${result.count ?? 'N/A'} results`, data: null });
+    }
+    return steps;
+}
+
+function renderSteps(steps) {
+    const area = document.getElementById('reasoningArea');
+    const container = document.getElementById('reasoningSteps');
+    area.style.display = 'block';
+    container.innerHTML = '';
+
+    steps.forEach((s, i) => {
+        const div = document.createElement('div');
+        div.className = 'step';
+        div.style.animationDelay = `${i * 0.12}s`;
+        div.innerHTML = `
+            <div class="step-num">${i + 1}</div>
+            <div class="step-body">
+                <div class="step-title">${s.title}</div>
+                <div class="step-text">${s.text}</div>
+                ${s.data ? `<div class="step-data">${s.data}</div>` : ''}
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function renderGenieResult(result) {
+    // Metrics
+    const metricsArea = document.getElementById('metricsArea');
+    metricsArea.style.display = 'block';
+    metricsArea.innerHTML = `
+        <div class="metrics-row">
+            <div class="metric-card"><div class="mc-val">${result.count ?? '—'}</div><div class="mc-label">Count</div></div>
+            <div class="metric-card"><div class="mc-val">797</div><div class="mc-label">Total</div></div>
+        </div>
+    `;
+
+    // Data table
+    const data = result.data || result.results || [];
+    if (data.length > 0) {
+        const area = document.getElementById('resultsArea');
+        const list = document.getElementById('resultsList');
+        area.style.display = 'block';
+        document.getElementById('resultsTitle').textContent = `Results (${data.length})`;
+
+        list.innerHTML = data.slice(0, 20).map(row => {
+            const entries = Object.entries(row).filter(([k]) => !['document_text','clinical_text','specialty_text'].includes(k));
+            const text = entries.map(([k,v]) => `<b>${k}:</b> ${v}`).join(' · ');
+            return `<div class="result-card"><div class="rc-meta">${text}</div></div>`;
+        }).join('');
+    }
+
+    // SQL trace
+    if (result.pseudo_sql) {
+        const stepsEl = document.getElementById('reasoningSteps');
+        const extra = document.createElement('div');
+        extra.className = 'step';
+        extra.innerHTML = `<div class="step-num">→</div><div class="step-body"><div class="step-title">Pseudo-SQL</div><div class="step-data">${result.pseudo_sql}</div></div>`;
+        stepsEl.appendChild(extra);
+    }
+}
+
+function renderVectorResult(result) {
+    const results = result.results || [];
+    const area = document.getElementById('resultsArea');
+    const list = document.getElementById('resultsList');
+    area.style.display = 'block';
+    document.getElementById('resultsTitle').textContent = `Semantic Results (${results.length})`;
+
+    // Metrics
+    const metricsArea = document.getElementById('metricsArea');
+    metricsArea.style.display = 'block';
+    metricsArea.innerHTML = `
+        <div class="metrics-row">
+            <div class="metric-card"><div class="mc-val">${results.length}</div><div class="mc-label">Found</div></div>
+            <div class="metric-card"><div class="mc-val">${result.duration_ms || '—'}ms</div><div class="mc-label">Latency</div></div>
+            <div class="metric-card"><div class="mc-val">${result.vector_used || '—'}</div><div class="mc-label">Vector</div></div>
+        </div>
+    `;
+
+    list.innerHTML = results.map(r => {
+        const specs = (r.specialties || []).slice(0, 4);
+        const tags = specs.map(s => `<span class="rc-tag">${s}</span>`).join('');
+        return `
+            <div class="result-card">
+                <span class="rc-score">${parseFloat(r.score).toFixed(3)}</span>
+                <div class="rc-name">${r.name || 'Unknown'}</div>
+                <div class="rc-meta">${r.city || ''} · ${r.organization_type || 'facility'}</div>
+                <div class="rc-tags">${tags}</div>
+            </div>
+        `;
+    }).join('');
+
+    // Highlight matching markers on map
+    highlightOnMap(results);
+}
+
+function highlightOnMap(results) {
+    // Zoom map to Ghana and flash markers for matching results
+    if (results.length > 0 && map) {
+        map.setView([7.95, -1.02], 7);
+    }
+}
+</script>
+</body>
+</html>

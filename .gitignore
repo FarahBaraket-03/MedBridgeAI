@@ -1,0 +1,46 @@
+# ── Environment & Secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual Environment ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Node / Frontend ──────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# ── IDE / Editor ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Qdrant Local Storage ─────────────────────────────────────────────────────
+qdrant_storage/
+
+# ── OS Junk ──────────────────────────────────────────────────────────────────
+__MACOSX/
+data/__MACOSX/
+
+# ── Logs & Temp ──────────────────────────────────────────────────────────────
+*.log
+tmp/
+temp/
